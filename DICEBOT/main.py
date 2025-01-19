@@ -44,49 +44,68 @@ async def search_btn(message:Message):
 @router.message(F.text == "Запустить игру")
 async def play_btn(message:Message):
    await message.answer("Бросай кубик, епта! Вон кнопка есть для этого. Жмякай ее!", reply_markup=kb.throwdice_kb)
+
+
 @router.message(F.text == "Кинуть кубик!")
-async def throw_button(message:Message):
-   await message.answer_dice(emoji="🎲")
+async def throw_button(message: Message):
+    """
+    1. The bot sends the dice message.
+    2. We wait ~3 seconds for the animation to complete.
+    3. We store the final dice value in DB.
+    4. We compare with the rival's dice.
+    """
+    user_id_val = message.from_user.id
 
+    # First, check if the user already rolled a dice this round
+    existing_value = await get_dice_value(user_id=user_id_val)
+    if existing_value is not None and existing_value != 0:
+        await message.answer(
+            "Ни хуя себе! Ты уже кинул кубик! Жди давай, пока кентишка твой бросит!"
+        )
+        return
 
-@router.message(F.dice.emoji == DiceEmoji.DICE)
-async def throw_dice(message:Message, bot: Bot):
-   user_id_val = message.from_user.id
-   dice_value_val = message.dice.value
+    # 1. Bot sends the dice
+    dice_message = await message.answer_dice(emoji="🎲")
 
-   existing_value = await get_dice_value(user_id=user_id_val)
-   if existing_value is not None and existing_value != 0:
-      await message.answer("Ни хуя себе! Ты уже кинул кубик! Жди давай, пока кентишка твой бросит!")
-      return
-   
-   await update_dice_value(user_id=user_id_val, dice_value=dice_value_val)
-   await message.answer(f"Ты выкинул: {dice_value_val}")
+    # 2. Wait for the dice animation to finish (about 3 seconds)
+    await asyncio.sleep(3)
 
-   rival_id_val = await get_rival_id(user_id=user_id_val)
-   if not rival_id_val:
-      await message.answer("Соперник че-то не найден. Попробуй заново! ")
-      return
-   
-   rival_value_val = await get_dice_value(user_id=rival_id_val)
-   if not rival_id_val or rival_value_val == 0:
-      await message.answer("Ну ждем пока твой соперник кубик бросит!")
-      return
-   
-   if dice_value_val > rival_value_val:
-      await message.answer("Ни хуя ты кравсавчик! Победа, епта! Втоптал лоха!")
-      await bot.send_message(rival_id_val, "Не фартануло, брат! Не повезло... :(")
-      await increment_win(user_id=user_id_val)
-      await increment_losses(user_id=rival_id_val)
-   elif dice_value_val < rival_value_val:
-      await message.answer("Ну ёбана... Что-то масть не пошла...")
-      await bot.send_message(rival_id_val, "Опа опа! Госпожа Удача сегодня тебе улыбается в 32 зуба, брат!")
-      await increment_losses(user_id=user_id_val)
-      await increment_win(user_id=rival_id_val)
-   else:
-      await message.answer("Господа, да у нас ничья бля!")
-      await bot.send_message(rival_id_val, "Ничья брат! Жмем ручки, целую в щёчки, кручу сосочки")
-      await increment_tie(user_id=user_id_val)
-      await increment_tie(user_id=rival_id_val)
+    # 3. Retrieve final dice value from the bot's own message
+    dice_value_val = dice_message.dice.value
+
+    # Store in DB
+    await update_dice_value(user_id=user_id_val, dice_value=dice_value_val)
+    await message.answer(f"Ты выкинул: {dice_value_val}")
+
+    # 4. Check if we have a rival
+    rival_id_val = await get_rival_id(user_id=user_id_val)
+    if not rival_id_val:
+        await message.answer("Соперник че-то не найден. Попробуй заново! ")
+        return
+
+    # Check if the rival has already rolled
+    rival_value_val = await get_dice_value(user_id=rival_id_val)
+    if not rival_id_val or rival_value_val == 0:
+        await message.answer("Ну ждем пока твой соперник кубик бросит!")
+        return
+
+    # Compare results
+    if dice_value_val > rival_value_val:
+        await message.answer("Ни хуя ты кравсавчик! Победа, епта! Втоптал лоха!")
+        await message.bot.send_message(rival_id_val, "Не фартануло, брат! Не повезло... :(")
+        await increment_win(user_id=user_id_val)
+        await increment_losses(user_id=rival_id_val)
+    elif dice_value_val < rival_value_val:
+        await message.answer("Ну ёбана... Что-то масть не пошла...")
+        await message.bot.send_message(rival_id_val, "Опа опа! Госпожа Удача сегодня тебе улыбается в 32 зуба, брат!")
+        await increment_losses(user_id=user_id_val)
+        await increment_win(user_id=rival_id_val)
+    else:
+        await message.answer("Господа, да у нас ничья бля!")
+        await message.bot.send_message(rival_id_val, "Ничья брат! Жмем ручки, целую в щёчки, кручу сосочки")
+        await increment_tie(user_id=user_id_val)
+        await increment_tie(user_id=rival_id_val)
+
    
 
 
