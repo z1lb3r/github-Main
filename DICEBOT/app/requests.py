@@ -59,7 +59,7 @@ async def increment_win(*, user_id: int):
 
 #   INCREMENT LOSSES
 async def increment_losses(*, user_id: int):
-    connection = sqlite3.connect("gamebeot_db.db")
+    connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
     cursor.execute("""
                    UPDATE gamedata
@@ -72,7 +72,7 @@ async def increment_losses(*, user_id: int):
 
 #   INCREMENT TIE
 async def increment_tie(*, user_id: int):
-    connection = sqlite3.connect("gamebeot_db.db")
+    connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
     cursor.execute("""
                    UPDATE gamedata

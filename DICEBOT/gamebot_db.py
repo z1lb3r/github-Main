@@ -4,7 +4,7 @@ connection = sqlite3.connect('gamebot_db.db')
 cursor = connection.cursor()
 
 cursor.execute("""CREATE TABLE IF NOT EXISTS gamedata(
-id int auto_increment primary_key,
+id INTEGER PRIMARY KEY AUTOINCREMENT,
 playerid int, 
 balance int,              
 wins int,

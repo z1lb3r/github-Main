@@ -46,7 +46,7 @@ async def play_btn(message:Message):
    await message.answer("Бросай кубик, епта! Вон кнопка есть для этого. Жмякай ее!", reply_markup=kb.throwdice_kb)
 @router.message(F.text == "Кинуть кубик!")
 async def throw_button(message:Message):
-   await message.answer_dice(eomji="🎲")
+   await message.answer_dice(emoji="🎲")
 
 
 @router.message(F.dice.emoji == DiceEmoji.DICE)
