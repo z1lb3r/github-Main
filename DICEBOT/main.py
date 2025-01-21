@@ -9,7 +9,7 @@ from aiogram.utils.markdown import hcode
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram.enums import DiceEmoji
 
-from app.requests import insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie
+from app.requests import insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie, reset_game_state
 from app import keyboard as kb
 
 
@@ -64,18 +64,20 @@ async def throw_button(message: Message):
         )
         return
 
-    # 1. Bot sends the dice
-    dice_message = await message.answer_dice(emoji="🎲")
-
+    # 1. Bot throws 2 dice
+    dice1_message = await message.answer_dice(emoji="🎲") 
+    dice2_message = await message.answer_dice(emoji="🎲")
     # 2. Wait for the dice animation to finish (about 3 seconds)
     await asyncio.sleep(3)
 
-    # 3. Retrieve final dice value from the bot's own message
-    dice_value_val = dice_message.dice.value
+    # 3. Calculate dice value 
+    dice1_value = dice1_message.dice.value
+    dice2_value = dice2_message.dice.value
+    total_value = dice1_value + dice2_value
 
     # Store in DB
-    await update_dice_value(user_id=user_id_val, dice_value=dice_value_val)
-    await message.answer(f"Ты выкинул: {dice_value_val}")
+    await update_dice_value(user_id=user_id_val, dice_value=total_value)
+    await message.answer(f"Ты выкинул: {dice1_value} + {dice2_value} = {total_value}")
 
     # 4. Check if we have a rival
     rival_id_val = await get_rival_id(user_id=user_id_val)
@@ -85,17 +87,17 @@ async def throw_button(message: Message):
 
     # Check if the rival has already rolled
     rival_value_val = await get_dice_value(user_id=rival_id_val)
-    if not rival_id_val or rival_value_val == 0:
-        await message.answer("Ну ждем пока твой соперник кубик бросит!")
+    if rival_value_val is None or rival_value_val == 0:
+        await message.answer("Ну ждем пока твой соперник кубики бросит!")
         return
 
     # Compare results
-    if dice_value_val > rival_value_val:
+    if  total_value > rival_value_val:
         await message.answer("Ни хуя ты кравсавчик! Победа, епта! Втоптал лоха!")
         await message.bot.send_message(rival_id_val, "Не фартануло, брат! Не повезло... :(")
         await increment_win(user_id=user_id_val)
         await increment_losses(user_id=rival_id_val)
-    elif dice_value_val < rival_value_val:
+    elif total_value < rival_value_val:
         await message.answer("Ну ёбана... Что-то масть не пошла...")
         await message.bot.send_message(rival_id_val, "Опа опа! Госпожа Удача сегодня тебе улыбается в 32 зуба, брат!")
         await increment_losses(user_id=user_id_val)
@@ -106,11 +108,28 @@ async def throw_button(message: Message):
         await increment_tie(user_id=user_id_val)
         await increment_tie(user_id=rival_id_val)
 
+    await update_dice_value(user_id=user_id_val, dice_value=0)
+    await update_dice_value(user_id=rival_id_val, dice_value=0)
+    await message.answer("Ну че, можешь продолжить игру. Кидай кости снова, епта!")
+    await message.bot.send_message(rival_id_val, "Братюня, твой соперник готов продолжать игру! Погнали?")
+
+
+@router.message(F.text == "Покинуть игру")
+async def leave_game(message:Message):
+    user_id_val = message.from_user.id
+    rival_id_val = await get_rival_id(user_id=user_id_val)
+
+    if not rival_id_val:
+        message.answer("Ты не в игре! Начни поиск нового соперника!")
+        return 
+    
+    await message.answer("Ты покинул игру")
+    await message.bot.send_message(rival_id_val, "Твой соперник покинул игру!")
+    await reset_game_state(user_id=user_id_val, rival_id=rival_id_val)
+    await message.answer("Нажми ПОИСК, чтобы найти нового соперника!", reply_markup=kb.search_kb)
+    await message.bot.send_message(rival_id_val, "Нажми НАЧАТЬ ПОИСК, чтобы найти нового соперника!", reply_markup=kb.search_kb)
+
    
-
-
-
-
 async def main() -> None:
     bot = Bot(token='7068307478:AAEPTE4OA9uInmFHh0Am-auyy1U-r6mCc_c')
     dp = Dispatcher()

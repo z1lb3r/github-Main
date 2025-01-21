@@ -23,5 +23,6 @@ startgame_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Запуст�
                                 resize_keyboard=True)
 
 
-throwdice_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Кинуть кубик!")]],
+throwdice_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Кинуть кубик!")],
+                                             [KeyboardButton(text="Покинуть игру")],],
                                 resize_keyboard=True)

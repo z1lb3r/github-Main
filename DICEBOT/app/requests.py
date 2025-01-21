@@ -1,6 +1,18 @@
 import sqlite3
 
 
+#   RESET GAME STATE
+async def reset_game_state(user_id: int, rival_id: int):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+                   UPDATE gamedata
+                   SET status = 0, rid = NULL, value = 0
+                   WHERE playerid IN (?,?)
+                   """,(user_id, rival_id))
+    connection.commit()
+    connection.close()
+
 #   UPDATE DICE VALUE
 async def update_dice_value(*, user_id: int, dice_value: int):
     connection = sqlite3.connect('gamebot_db.db')
