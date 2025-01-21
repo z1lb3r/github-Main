@@ -9,9 +9,8 @@ from aiogram.utils.markdown import hcode
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram.enums import DiceEmoji
 
-from app.requests import insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie, reset_game_state
+from app.requests import insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie, reset_game_state, get_balance, update_balance
 from app import keyboard as kb
-
 
 
 router = Router()
@@ -48,70 +47,85 @@ async def play_btn(message:Message):
 
 @router.message(F.text == "Кинуть кубик!")
 async def throw_button(message: Message):
-    """
-    1. The bot sends the dice message.
-    2. We wait ~3 seconds for the animation to complete.
-    3. We store the final dice value in DB.
-    4. We compare with the rival's dice.
-    """
+    """Handles dice roll logic."""
     user_id_val = message.from_user.id
 
-    # First, check if the user already rolled a dice this round
-    existing_value = await get_dice_value(user_id=user_id_val)
-    if existing_value is not None and existing_value != 0:
-        await message.answer(
-            "Ни хуя себе! Ты уже кинул кубик! Жди давай, пока кентишка твой бросит!"
-        )
+    # Check balance for the user
+    balance = await get_balance(user_id=user_id_val)
+    if balance <= 0:
+        await message.answer("У тебя недостаточно бабок, чтобы играть. Пополни баланс!")
         return
 
-    # 1. Bot throws 2 dice
-    dice1_message = await message.answer_dice(emoji="🎲") 
-    dice2_message = await message.answer_dice(emoji="🎲")
-    # 2. Wait for the dice animation to finish (about 3 seconds)
-    await asyncio.sleep(3)
+    # Check for rival
+    rival_id_val = await get_rival_id(user_id=user_id_val)
+    if not rival_id_val:
+        await message.answer("Соперник че-то не найден. Попробуй заново!")
+        return
 
-    # 3. Calculate dice value 
+    # Check balance for the rival
+    rival_balance = await get_balance(user_id=rival_id_val)
+    if rival_balance <= 0:
+        await message.answer("У твоего соперника недостаточно бабок для игры. Игра завершена!")
+        await message.bot.send_message(rival_id_val, "У тебя недостаточно баланса для игры. Игра завершена!")
+        await reset_game_state(user_id=user_id_val, rival_id=rival_id_val)
+        return
+
+    # Check if the user already rolled a dice this round
+    existing_value = await get_dice_value(user_id=user_id_val)
+    if existing_value and existing_value != 0:
+        await message.answer("Ты уже кинул кубик! Жди, пока соперник кинет свой!")
+        return
+
+    # Bot rolls 2 dice
+    dice1_message = await message.answer_dice(emoji="🎲")
+    dice2_message = await message.answer_dice(emoji="🎲")
+    await asyncio.sleep(3)  # Wait for animation to complete
+
+    # Calculate total dice value
     dice1_value = dice1_message.dice.value
     dice2_value = dice2_message.dice.value
     total_value = dice1_value + dice2_value
 
-    # Store in DB
+    # Store result in the database
     await update_dice_value(user_id=user_id_val, dice_value=total_value)
     await message.answer(f"Ты выкинул: {dice1_value} + {dice2_value} = {total_value}")
 
-    # 4. Check if we have a rival
-    rival_id_val = await get_rival_id(user_id=user_id_val)
-    if not rival_id_val:
-        await message.answer("Соперник че-то не найден. Попробуй заново! ")
-        return
-
-    # Check if the rival has already rolled
+    # Check if rival has already rolled
     rival_value_val = await get_dice_value(user_id=rival_id_val)
     if rival_value_val is None or rival_value_val == 0:
-        await message.answer("Ну ждем пока твой соперник кубики бросит!")
+        await message.answer("Ждем, пока твой соперник бросит кубики!")
         return
 
     # Compare results
-    if  total_value > rival_value_val:
-        await message.answer("Ни хуя ты кравсавчик! Победа, епта! Втоптал лоха!")
-        await message.bot.send_message(rival_id_val, "Не фартануло, брат! Не повезло... :(")
+    if total_value > rival_value_val:
+        await message.answer("Победа! Ты выиграл!")
+        await message.bot.send_message(rival_id_val, "Ты проиграл! Не фартануло...")
+        await update_balance(user_id=user_id_val, points=1)  # Winner gains 1 point
+        await update_balance(user_id=rival_id_val, points=-1)
         await increment_win(user_id=user_id_val)
         await increment_losses(user_id=rival_id_val)
     elif total_value < rival_value_val:
-        await message.answer("Ну ёбана... Что-то масть не пошла...")
-        await message.bot.send_message(rival_id_val, "Опа опа! Госпожа Удача сегодня тебе улыбается в 32 зуба, брат!")
+        await message.answer("Ты проиграл! Попробуй еще раз.")
+        await message.bot.send_message(rival_id_val, "Поздравляю! Ты выиграл!")
+        await update_balance(user_id=user_id_val, points=-1)  # Winner gains 1 point
+        await update_balance(user_id=rival_id_val, points=1)
         await increment_losses(user_id=user_id_val)
         await increment_win(user_id=rival_id_val)
     else:
-        await message.answer("Господа, да у нас ничья бля!")
-        await message.bot.send_message(rival_id_val, "Ничья брат! Жмем ручки, целую в щёчки, кручу сосочки")
+        await message.answer("Ничья! Удача была равной.")
+        await message.bot.send_message(rival_id_val, "Ничья!")
         await increment_tie(user_id=user_id_val)
         await increment_tie(user_id=rival_id_val)
 
+    # Reset dice values
     await update_dice_value(user_id=user_id_val, dice_value=0)
     await update_dice_value(user_id=rival_id_val, dice_value=0)
-    await message.answer("Ну че, можешь продолжить игру. Кидай кости снова, епта!")
-    await message.bot.send_message(rival_id_val, "Братюня, твой соперник готов продолжать игру! Погнали?")
+
+    # Notify players of updated balances
+    new_balance = await get_balance(user_id=user_id_val)
+    rival_balance = await get_balance(user_id=rival_id_val)
+    await message.answer(f"Твой баланс: {new_balance} очков. Готов продолжить игру?", reply_markup=kb.throwdice_kb)
+    await message.bot.send_message(rival_id_val, f"Твой баланс: {rival_balance} очков. Продолжим игру?", reply_markup=kb.throwdice_kb)
 
 
 @router.message(F.text == "Покинуть игру")

@@ -5,14 +5,14 @@ cursor = connection.cursor()
 
 cursor.execute("""CREATE TABLE IF NOT EXISTS gamedata(
 id INTEGER PRIMARY KEY AUTOINCREMENT,
-playerid int, 
-balance int,              
+playerid int,              
 wins int,
 losses int,
 tie int,
 status int,
 value int,
-rid int 
+rid int,
+balance int
 )""")
 
 

@@ -1,6 +1,33 @@
 import sqlite3
 
 
+#   UPDATE BALANCE
+async def update_balance(user_id:int, points:int):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+                   UPDATE gamedata
+                   SET balance = balance + ?
+                   WHERE playerid = ?
+                   """,(points, user_id))
+    connection.commit()
+    connection.close()
+
+
+#   GET BALANCE
+async def get_balance(user_id:int):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+                   SELECT balance FROM gamedata
+                   WHERE playerid = ?
+                   """,(user_id,))
+    row = cursor.fetchone()
+    connection.commit()
+    connection.close()
+    return row[0] if row else None
+
+
 #   RESET GAME STATE
 async def reset_game_state(user_id: int, rival_id: int):
     connection = sqlite3.connect('gamebot_db.db')
@@ -99,7 +126,7 @@ async def increment_tie(*, user_id: int):
 async def insert_user(*, id: int, id2: int): 
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-    cursor.execute("INSERT INTO gamedata(playerid) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM gamedata WHERE playerid = ?)",(id, id2))
+    cursor.execute("INSERT INTO gamedata(playerid, balance) SELECT ?,100  WHERE NOT EXISTS (SELECT 1 FROM gamedata WHERE playerid = ?)",(id, id2))
     connection.commit()
     connection.close() 
 
