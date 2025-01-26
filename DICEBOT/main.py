@@ -1,4 +1,5 @@
 import asyncio
+import aiohttp
 from contextlib import suppress
 
 from aiogram import Router, Bot, Dispatcher, F
@@ -8,12 +9,99 @@ from aiogram.enums import DiceEmoji, ParseMode
 from aiogram.utils.markdown import hcode
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from aiogram.enums import DiceEmoji
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
-from app.requests import insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie, reset_game_state, get_balance, update_balance
+from app.requests import (insert_user, get_data, start_search, set_balance, give_me_rival, get_rival_id, 
+                          update_dice_value, get_dice_value, increment_win, increment_losses, increment_tie,
+                          reset_game_state, get_balance, update_balance, 
+                          is_deposit_processed, record_pending_deposit, mark_deposit_processed)
 from app import keyboard as kb
 
 
 router = Router()
+
+#   TRON blockchain configuration
+TRON_API_BASE_URL = 'https://api.trongrid.io' 
+TRC20_WALLET = 'TGNdiqjoJhwVPFXivbG2GWGV8qoMt2eTs1'
+TRON_API_KEY = 'mx0vglYZ55bzK7Yacb'
+WITHDRAWAL_PRIVATE_KEY = '7282b73c2cff45e5bd1c9cd06fa76811'
+
+
+#   States for deposit and withdrawal workflow
+class DepositState(StatesGroup):
+    waiting_for_amount = State()
+
+class WithdrawalState(StatesGroup):
+    waiting_for_amount = State()
+    waiting_for_wallet = State()
+
+#   Utility: get the balance of my wallet
+async def get_usdt_balance(wallet_address):
+    #   Check USDT balance of the specified TRC wallet
+    async with aiohttp.ClientSession() as session:
+        url = f"{TRON_API_BASE_URL}/v1/accounts/{wallet_address}"
+        headers = {"TRON-PRO-API-KEY": TRON_API_KEY}
+        async with session.get(url, headers=headers) as response:
+            data = await response.json()
+            #   Look for the usdt balance in the token list 
+            for token in data.get("trc20token_balances", []):
+                if token["token_name"] == "Tether USDT":
+                    return float(token["balance"]) / 10**6  #   convert from smallest unit 
+        return 0
+
+#   Utility: send USDT to external wallet 
+async def send_usdt(receiver, amount):
+    #   Sends specified amount of USDT to an external wallet
+    async with aiohttp.ClientSession() as session:
+        url = f"{TRON_API_BASE_URL}/wallet/createtransaction"
+        headers = {"Content-Type": "application/json", "TRON-PRO-API-KEY": TRON_API_KEY}
+        payload = {
+            "owner_address": TRC20_WALLET,
+            "to_address": receiver,
+            "amount": int(amount * 10**6),
+            "asset_name": "Tether USD",
+            "privatekey": WITHDRAWAL_PRIVATE_KEY
+        }
+        async with session.post(url, json=payload, headers=headers) as response:
+            return await response.json()
+
+
+async def background_deposit_search():
+      while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{TRON_API_BASE_URL}/v1/accounts/{TRC20_WALLET}/transactions/trc20"
+                headers = {"TRON-PRO-API-KEY": TRON_API_KEY}
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                      data = await response.json()
+                      transactions = data.get("data",[])
+
+                      for tx in transactions:
+                        if tx["to"] == TRC20_WALLET and tx["token_info"]["symbol"] == "USDT":
+                                amount = int(tx["value"]) / (10 ** 6)
+                                tx_hash = tx["transaction_id"]
+                                if not await is_deposit_processed(tx_hash):
+                                    user_id = await record_pending_deposit(amount=amount)
+                                    if user_id:
+                                        await update_balance(user_id=user_id, points=int(amount))
+                                        await mark_deposit_processed(tx_hash)
+                                        print(f"Deposit of amount {amount} credited tp user {user_id}")
+        except Exception as e:
+                print(f"Error checking deposits: {e}")
+        
+        await asyncio.sleep(30)
+
+
+async def background_rival_search(user_id: int, message: Message):
+    while True:
+        rival_id = await give_me_rival(id=user_id)
+        if rival_id:
+            await message.answer("Соперник найден! Начинаем игру.", reply_markup=kb.startgame_kb)
+            break
+        await asyncio.sleep(3)
+
 
 @router.message(Command("start"))
 async def start_btn(message:Message):
@@ -22,23 +110,84 @@ async def start_btn(message:Message):
     await insert_user(id=user, id2=user)
 
 
+@router.message(F.text == "Депозит")
+async def start_deposit(message:Message, state:FSMContext):
+    await message.answer("Введите сумму USDT, которую хотите внести на депозит")
+    await state.set_state(DepositState.waiting_for_amount)
+@router.message(DepositState.waiting_for_amount)
+async def process_deposit_amount(message:Message, state:FSMContext):
+    try:
+        amount = float(message.text)
+        if amount <= 0:
+            raise   ValueError
+    except ValueError:
+        await message.answer("Введите корректную сумму")
+        return
+    
+    #   Send USDT trc20 for deposit
+    await message.answer(f"Отправьте {amount} USDT на адрес TRC20: '{TRC20_WALLET}'.\n"
+                         "Мы проверим перевод и обвновим Ваш баланс.", 
+                         parse_mode='Markdown',)
+    await state.clear()
+
+
+@router.message(F.text == "Вывести")
+async def start_withdraw(message:Message, state: FSMContext):
+    await message.answer("Введите сумму USDT, которую хотите вывести:")
+    await state.set_state(WithdrawalState.waiting_for_amount)
+@router.message(WithdrawalState.waiting_for_amount)
+async def process_withdraw_amount(message:Message, state:FSMContext):
+    try:
+        amount = float(message.text)
+        user_balance = await get_balance(user_id=message.from_user.id)
+        if amount <= 0 or amount > user_balance:
+            await message.answer
+            return
+    except ValueError:
+        await message.answer("Ввели корректную сумму")
+        return
+
+
+    await state.update_data(amount=amount)
+    await message.answer("Введите адрес TRC20 для вывода:")
+    await state.set_state(WithdrawalState.waiting_for_wallet)
+@router.message(WithdrawalState.waiting_for_wallet)
+async def process_withdraw_wallet(message:Message, state:FSMContext):
+    wallet_address = message.text.strip()
+    #   Check if wallet is correct
+    if len(wallet_address) < 34 or not wallet_address.startswith("T"):
+        await message.answer("Обезьяна, введи адрес нормальный!")
+        return
+    
+    user_data = await state.get_data()
+    amount = user_data['amount']
+
+    #   Execute withdrawal
+    response = await send_usdt(receiver=wallet_address, amount=amount)
+    if response.get("result"):
+        await update_balance(user_id=message.from_user.id, points=-amount)
+        await message.answer(f"Вывод {amount} USDT успешно выполнен на кошелек {wallet_address}")
+    else:
+        await message.answer("Ошибка вывода. Попробуй снова")
+    await state.clear()
+
+
+#   Periodically check for deposits
+async def cdetect_and_update_deposits():
+    # Periodically check TRC20 wallet for incoming deposits 
+    while True:
+        current_balance = await get_usdt_balance(TRC20_WALLET)
+        await asyncio.sleep(30)
+
+
 @router.message(F.text == "Начать поиск")
 async def search_btn(message:Message):
    await message.answer("Ищем для тебя соперника. Жди!", reply_markup=kb.back_to_main)
    user = message.from_user.id
    await start_search(id=user,status=1)
    await set_balance(id=user, balance=100)
-
-   async def background_rival_search():
-      while True:
-         matched = await give_me_rival(id=user)
-         if matched:
-            await message.answer("Нашелся для тебя соперник. Погнали!", reply_markup=kb.startgame_kb)
-            break
-         await asyncio.sleep(3)
-  
-   asyncio.create_task(background_rival_search())
-
+   
+   asyncio.create_task(background_rival_search(user_id=user, message=message))
 
 @router.message(F.text == "Запустить игру")
 async def play_btn(message:Message):

@@ -9,7 +9,9 @@ back_to_main = ReplyKeyboardMarkup(
                                     resize_keyboard=True)
 
 
-search_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Начать поиск")]],
+search_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="Начать поиск")],
+                                          [KeyboardButton(text="Депозит")],
+                                          [KeyboardButton(text="Вывести")]],
                                 resize_keyboard=True)
 
 
