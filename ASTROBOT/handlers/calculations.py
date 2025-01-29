@@ -2,35 +2,32 @@ from aiogram import Router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.filters import Text
 
 from config import HOLOS_COMPOSITE_URL, HOLOS_DREAM_URL
 from services.db import user_has_active_subscription
 from services.holos_api import send_request_to_holos
 from services.pdf_data import get_pdf_content
-from services.chat_gpt import get_section_comment
+from services.chat_gpt import get_esoteric_astrology_response
 
 router = Router()
 
 class CalculationStates(StatesGroup):
-    waiting_for_choice = State()
     waiting_for_date = State()
     waiting_for_latitude = State()
     waiting_for_longitude = State()
     waiting_for_altitude = State()
 
-@router.message(Text(equals=["Расчёт композита", "Расчёт Dream Rave"], ignore_case=True))
+@router.message(lambda msg: msg.text and msg.text.lower() in ["расчёт композита", "расчёт dream rave"])
 async def start_calculation(message: Message, state: FSMContext):
-    """Пользователь выбрал один из расчётов: композит или Dream Rave."""
+    """Пользователь выбрал 'Расчёт композита' или 'Расчёт Dream Rave'."""
     user_id = message.from_user.id
     if not user_has_active_subscription(user_id):
         await message.answer("У вас нет активной подписки. Используйте /subscribe.")
         return
 
-    chosen_section = message.text.strip().lower()  # «расчёт композита» или «расчёт dream rave»
+    chosen_section = message.text.strip().lower()
     await state.update_data(chosen_section=chosen_section)
 
-    # Спрашиваем дату
     await message.answer("Укажите дату (ГГГГ-ММ-ДД):")
     await state.set_state(CalculationStates.waiting_for_date)
 
@@ -42,7 +39,6 @@ async def handle_date(message: Message, state: FSMContext):
         return
 
     date_str = message.text.strip()
-    # Здесь можно валидировать формат ГГГГ-ММ-ДД
     await state.update_data(date=date_str)
 
     await message.answer("Укажите широту (например, 55.7558):")
@@ -54,7 +50,7 @@ async def handle_latitude(message: Message, state: FSMContext):
     try:
         lat = float(lat_str)
     except ValueError:
-        await message.answer("Широта должна быть числом. Попробуйте снова.")
+        await message.answer("Широта должна быть числом. Повторите ввод.")
         return
 
     await state.update_data(latitude=lat)
@@ -67,7 +63,7 @@ async def handle_longitude(message: Message, state: FSMContext):
     try:
         lon = float(lon_str)
     except ValueError:
-        await message.answer("Долгота должна быть числом. Попробуйте снова.")
+        await message.answer("Долгота должна быть числом. Повторите ввод.")
         return
 
     await state.update_data(longitude=lon)
@@ -85,20 +81,20 @@ async def handle_altitude(message: Message, state: FSMContext):
     try:
         alt = float(alt_str)
     except ValueError:
-        await message.answer("Высота должна быть числом. Попробуйте снова.")
+        await message.answer("Высота должна быть числом. Повторите ввод.")
         return
 
     data = await state.get_data()
+    data["altitude"] = alt
     chosen_section = data["chosen_section"]  # «расчёт композита» или «расчёт dream rave»
 
-    data["altitude"] = alt
-    # Выбираем URL в зависимости от раздела
+    # Определяем нужный URL
     if "композита" in chosen_section:
         holos_url = HOLOS_COMPOSITE_URL
     else:
         holos_url = HOLOS_DREAM_URL
 
-    # Формируем запрос
+    # Извлекаем данные
     date_value = data["date"]
     lat_value = data["latitude"]
     lon_value = data["longitude"]
@@ -113,15 +109,14 @@ async def handle_altitude(message: Message, state: FSMContext):
         altitude=alt_value
     )
 
-    # Сохраняем ответ
+    # Сохраняем для дальнейшего использования
     await state.update_data(holos_response=response_data)
     await state.clear()
 
-    # Дополнительный комментарий в зависимости от раздела:
     pdf_content = get_pdf_content()
-    comment_text = get_section_comment(section_name=chosen_section, pdf_content=pdf_content, holos_data=response_data)
+    comment_text = get_esoteric_astrology_response(chosen_section, pdf_content, response_data)
 
     await message.answer(
-        "Я собрал необходимые данные для продолжения диалога. Задавай интересующий вопрос.\n\n"
+        "Я собрал необходимые данные для продолжения диалога. Задавайте интересующие вопросы.\n\n"
         f"{comment_text}"
     )

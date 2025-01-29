@@ -6,11 +6,8 @@ async def send_request_to_holos(
     date_str: str,
     latitude: float,
     longitude: float,
-    altitude: int
+    altitude: float
 ) -> dict:
-    """
-    Отправляет запрос POST на указанный holos_url (composite/dream).
-    """
     payload = {
         "key": HOLOS_API_KEY,
         "datetime": date_str,

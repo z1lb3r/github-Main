@@ -1,16 +1,15 @@
 from aiogram import Router
 from aiogram.types import Message
-from aiogram.filters import Text
 
 router = Router()
 
-@router.message(Text(equals=["Подписка"], ignore_case=True))
+@router.message(lambda msg: msg.text and msg.text.lower() == "подписка")
 async def subscription_choice(message: Message):
-    """Пользователь выбрал 'Подписка'."""
+    """Пользователь выбрал 'Подписка' (через кнопку или вручную)."""
     await message.answer(
         "Раздел 'Подписка'.\n"
         "Команды:\n"
-        " - /subscribe (активация подписки)\n"
+        " - /subscribe (активация)\n"
         " - /unsubscribe (деактивация)\n"
         " - /status (проверка статуса)\n"
     )

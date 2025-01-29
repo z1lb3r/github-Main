@@ -36,9 +36,7 @@ def activate_subscription(user_id: int):
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
-                "UPDATE users SET subscription_status = 'active', "
-                "subscription_expires_at = datetime('now', '+30 days') "
-                "WHERE user_id = ?",
+                "UPDATE users SET subscription_status = 'active', subscription_expires_at = datetime('now', '+30 days') WHERE user_id = ?",
                 (user_id,)
             )
 
@@ -46,8 +44,6 @@ def deactivate_subscription(user_id: int):
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
-                "UPDATE users SET subscription_status = 'inactive', "
-                "subscription_expires_at = NULL "
-                "WHERE user_id = ?",
+                "UPDATE users SET subscription_status = 'inactive', subscription_expires_at = NULL WHERE user_id = ?",
                 (user_id,)
             )
