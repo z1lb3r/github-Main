@@ -68,28 +68,34 @@ async def send_usdt(receiver, amount):
 
 
 async def background_deposit_search():
-      while True:
+    while True:
         try:
             async with aiohttp.ClientSession() as session:
                 url = f"{TRON_API_BASE_URL}/v1/accounts/{TRC20_WALLET}/transactions/trc20"
                 headers = {"TRON-PRO-API-KEY": TRON_API_KEY}
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
-                      data = await response.json()
-                      transactions = data.get("data",[])
-
-                      for tx in transactions:
-                        if tx["to"] == TRC20_WALLET and tx["token_info"]["symbol"] == "USDT":
-                                amount = int(tx["value"]) / (10 ** 6)
+                        data = await response.json()
+                        transactions = data.get("data", [])
+                        
+                        for tx in transactions:
+                            if tx["to"] == TRC20_WALLET and tx["token_info"]["symbol"] == "USDT":
+                                amount = int(tx["value"]) / (10**6)
                                 tx_hash = tx["transaction_id"]
+                                
+                                # Проверяем, обработан ли депозит
                                 if not await is_deposit_processed(tx_hash):
-                                    user_id = await record_pending_deposit(amount=amount)
-                                    if user_id:
-                                        await update_balance(user_id=user_id, points=int(amount))
-                                        await mark_deposit_processed(tx_hash)
-                                        print(f"Deposit of amount {amount} credited tp user {user_id}")
+                                    # Регистрируем депозит как "в ожидании"
+                                    await record_pending_deposit(tx_id=tx_hash, user_id=None, amount=amount)
+                                    
+                                    # Логика обработки депозита (например, обновление баланса)
+                                    print(f"Pending deposit of {amount} USDT detected for tx: {tx_hash}")
+                                    
+                                    # После успешного обновления баланса, помечаем транзакцию как обработанную
+                                    await mark_deposit_processed(tx_hash)
+                                    print(f"Transaction {tx_hash} marked as processed.")
         except Exception as e:
-                print(f"Error checking deposits: {e}")
+            print(f"Error in deposit detection: {e}")
         
         await asyncio.sleep(30)
 
@@ -119,9 +125,10 @@ async def process_deposit_amount(message:Message, state:FSMContext):
     try:
         amount = float(message.text)
         if amount <= 0:
-            raise   ValueError
+            await message.answer("Введите положительную сумму для депозита!")
+            return
     except ValueError:
-        await message.answer("Введите корректную сумму")
+        await message.answer("Введите корректное число!")
         return
     
     #   Send USDT trc20 for deposit
@@ -140,13 +147,15 @@ async def process_withdraw_amount(message:Message, state:FSMContext):
     try:
         amount = float(message.text)
         user_balance = await get_balance(user_id=message.from_user.id)
-        if amount <= 0 or amount > user_balance:
-            await message.answer
+        if amount <= 0:
+            await message.answer("Введите положительное число для вывода!")
+            return
+        if amount > user_balance:
+            await message.answer(f"Недостаточно средств! Ваш баланс: {user_balance}")
             return
     except ValueError:
-        await message.answer("Ввели корректную сумму")
+        await message.answer("Введите корректное число!")
         return
-
 
     await state.update_data(amount=amount)
     await message.answer("Введите адрес TRC20 для вывода:")
@@ -156,7 +165,7 @@ async def process_withdraw_wallet(message:Message, state:FSMContext):
     wallet_address = message.text.strip()
     #   Check if wallet is correct
     if len(wallet_address) < 34 or not wallet_address.startswith("T"):
-        await message.answer("Обезьяна, введи адрес нормальный!")
+        await message.answer("Введён некорректный TRC20-адрес. Попробуйте снова!")
         return
     
     user_data = await state.get_data()
@@ -173,7 +182,7 @@ async def process_withdraw_wallet(message:Message, state:FSMContext):
 
 
 #   Periodically check for deposits
-async def cdetect_and_update_deposits():
+async def detect_and_update_deposits():
     # Periodically check TRC20 wallet for incoming deposits 
     while True:
         current_balance = await get_usdt_balance(TRC20_WALLET)
