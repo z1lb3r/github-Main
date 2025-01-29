@@ -20,6 +20,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     holos_response = data.get("holos_response", {})
 
     pdf_content = get_pdf_content()
-    answer = get_esoteric_astrology_response(user_question, pdf_content, holos_response)
+ #   answer = get_esoteric_astrology_response(user_question, pdf_content, holos_response)
+    answer = get_esoteric_astrology_response(user_question, holos_response)
 
     await message.answer(answer)

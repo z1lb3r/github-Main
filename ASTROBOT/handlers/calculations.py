@@ -114,7 +114,8 @@ async def handle_altitude(message: Message, state: FSMContext):
     await state.clear()
 
     pdf_content = get_pdf_content()
-    comment_text = get_esoteric_astrology_response(chosen_section, pdf_content, response_data)
+    #   comment_text = get_esoteric_astrology_response(chosen_section, pdf_content, response_data)
+    comment_text = get_esoteric_astrology_response(chosen_section,response_data)
 
     await message.answer(
         "Я собрал необходимые данные для продолжения диалога. Задавайте интересующие вопросы.\n\n"

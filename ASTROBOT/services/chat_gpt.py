@@ -3,21 +3,30 @@ from config import OPENAI_API_KEY
 
 openai.api_key = OPENAI_API_KEY
 
-def get_esoteric_astrology_response(user_input: str, pdf_content: str, holos_data: dict) -> str:
+# def get_esoteric_astrology_response(user_input: str, pdf_content: str, holos_data: dict) -> str:
+#     # Текст, который будет передан роли developer (ранее system).
+#     # Это «старшие» инструкции к боту — его стиль, тон, возможности.
+#     developer_message = (
+#         "Ты — виртуальный эзотерический и астрологический консультант, "
+#         "разбираешься в Human Design. "
+#         "Используй материалы из PDF (экспертная информация) "
+#         "и сведения из holos_data, чтобы давать точные и полезные ответы."
+#     )
+
+def get_esoteric_astrology_response(user_input: str,  holos_data: dict) -> str:
     # Текст, который будет передан роли developer (ранее system).
     # Это «старшие» инструкции к боту — его стиль, тон, возможности.
     developer_message = (
         "Ты — виртуальный эзотерический и астрологический консультант, "
-        "разбираешься в Human Design. "
-        "Используй материалы из PDF (экспертная информация) "
-        "и сведения из holos_data, чтобы давать точные и полезные ответы."
+        "Эксперт в области Human Design. "
+        "Окажи максимально экспертную консультацию, используя данные по этой теме"
     )
 
     # Сформируем текст, который передаём роли user:
     holos_text = f"Данные c сайта Holos: {holos_data}" if holos_data else ""
     user_message = (
         f"Пользователь спрашивает: '{user_input}'.\n\n"
-        f"Экспертные материалы из PDF:\n{pdf_content}\n\n"
+    #    f"Экспертные материалы из PDF:\n{pdf_content}\n\n"
         f"{holos_text}"
     )
 
@@ -34,7 +43,7 @@ def get_esoteric_astrology_response(user_input: str, pdf_content: str, holos_dat
             temperature=0.7,
         )
         # Актуальный способ извлечь текст:
-        return response.choices[0].message["content"]
+        return response.choices[0].message.content
     except Exception as e:
         print("Ошибка при запросе к ChatGPT:", e)
         return "Произошла ошибка при получении ответа от ChatGPT. Попробуйте позже."
