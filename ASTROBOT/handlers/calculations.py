@@ -6,8 +6,6 @@ from aiogram.fsm.state import StatesGroup, State
 from config import HOLOS_COMPOSITE_URL, HOLOS_DREAM_URL
 from services.db import user_has_active_subscription
 from services.holos_api import send_request_to_holos
-from services.pdf_data import get_pdf_content
-from services.chat_gpt import get_esoteric_astrology_response
 
 router = Router()
 
@@ -17,15 +15,27 @@ class CalculationStates(StatesGroup):
     waiting_for_longitude = State()
     waiting_for_altitude = State()
 
+
+async def send_long_message(message, text: str):
+    """Функция для отправки очень длинных сообщений по частям."""
+    chunk_size = 4096
+    if len(text) <= chunk_size:
+        await message.answer(text)
+    else:
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i:i+chunk_size]
+            await message.answer(chunk)
+
+
 @router.message(lambda msg: msg.text and msg.text.lower() in ["расчёт композита", "расчёт dream rave"])
 async def start_calculation(message: Message, state: FSMContext):
-    """Пользователь выбрал 'Расчёт композита' или 'Расчёт Dream Rave'."""
+    """Начинаем опрос, чтобы собрать данные для запроса к Holos."""
     user_id = message.from_user.id
     if not user_has_active_subscription(user_id):
-        await message.answer("У вас нет активной подписки. Используйте /subscribe.")
+        await message.answer("У вас нет активной подписки. Введите /subscribe для активации.")
         return
 
-    chosen_section = message.text.strip().lower()
+    chosen_section = message.text.strip().lower()  # «расчёт композита» или «расчёт dream rave»
     await state.update_data(chosen_section=chosen_section)
 
     await message.answer("Укажите дату (ГГГГ-ММ-ДД):")
@@ -35,7 +45,7 @@ async def start_calculation(message: Message, state: FSMContext):
 async def handle_date(message: Message, state: FSMContext):
     user_id = message.from_user.id
     if not user_has_active_subscription(user_id):
-        await message.answer("Подписка неактивна. Введите /subscribe.")
+        await message.answer("Подписка неактивна. /subscribe")
         return
 
     date_str = message.text.strip()
@@ -50,7 +60,7 @@ async def handle_latitude(message: Message, state: FSMContext):
     try:
         lat = float(lat_str)
     except ValueError:
-        await message.answer("Широта должна быть числом. Повторите ввод.")
+        await message.answer("Широта должна быть числом. Попробуйте снова.")
         return
 
     await state.update_data(latitude=lat)
@@ -63,7 +73,7 @@ async def handle_longitude(message: Message, state: FSMContext):
     try:
         lon = float(lon_str)
     except ValueError:
-        await message.answer("Долгота должна быть числом. Повторите ввод.")
+        await message.answer("Долгота должна быть числом. Повторите снова.")
         return
 
     await state.update_data(longitude=lon)
@@ -72,6 +82,7 @@ async def handle_longitude(message: Message, state: FSMContext):
 
 @router.message(CalculationStates.waiting_for_altitude)
 async def handle_altitude(message: Message, state: FSMContext):
+    """Завершаем опрос, отправляем запрос к Holos, показываем пользователю сырые результаты JSON."""
     user_id = message.from_user.id
     if not user_has_active_subscription(user_id):
         await message.answer("Подписка неактивна. Введите /subscribe.")
@@ -81,26 +92,24 @@ async def handle_altitude(message: Message, state: FSMContext):
     try:
         alt = float(alt_str)
     except ValueError:
-        await message.answer("Высота должна быть числом. Повторите ввод.")
+        await message.answer("Высота должна быть числом. Повторите снова.")
         return
 
     data = await state.get_data()
     data["altitude"] = alt
-    chosen_section = data["chosen_section"]  # «расчёт композита» или «расчёт dream rave»
 
-    # Определяем нужный URL
+    chosen_section = data["chosen_section"]  # «расчёт композита» или «расчёт dream rave»
     if "композита" in chosen_section:
         holos_url = HOLOS_COMPOSITE_URL
     else:
         holos_url = HOLOS_DREAM_URL
 
-    # Извлекаем данные
     date_value = data["date"]
     lat_value = data["latitude"]
     lon_value = data["longitude"]
     alt_value = data["altitude"]
 
-    # Отправляем запрос
+    # Отправляем запрос к Holos
     response_data = await send_request_to_holos(
         holos_url=holos_url,
         date_str=date_value,
@@ -109,15 +118,23 @@ async def handle_altitude(message: Message, state: FSMContext):
         altitude=alt_value
     )
 
-    # Сохраняем для дальнейшего использования
+    # Сохраняем результат в состояние, чтобы дальше его мог использовать ChatGPT
     await state.update_data(holos_response=response_data)
+
+    # Очищаем FSM (опрос закончен)
     await state.clear()
 
-    pdf_content = get_pdf_content()
-    #   comment_text = get_esoteric_astrology_response(chosen_section, pdf_content, response_data)
-    comment_text = get_esoteric_astrology_response(chosen_section,response_data)
+    # ----- ВАЖНО: Теперь вместо комментария от ChatGPT сразу показываем сырые результаты -----
 
+    # Показываем пользователю результат
+    # await message.answer(
+    #     "Вот результаты запроса к Holos:\n\n"
+    #     f"{response_data}"  # Можно форматировать, если нужно
+    # )
+    text_to_send = "Вот результаты запроса к Holos:\n\n" + str(response_data)
+    await send_long_message(message, text_to_send)
+
+    # И пишем фразу, что бот готов к вопросам.
     await message.answer(
-        "Я собрал необходимые данные для продолжения диалога. Задавайте интересующие вопросы.\n\n"
-        f"{comment_text}"
+        "Я собрал необходимые данные для продолжения диалога. Задавайте интересующие вопросы."
     )
