@@ -131,10 +131,21 @@ async def handle_altitude(message: Message, state: FSMContext):
     #     "Вот результаты запроса к Holos:\n\n"
     #     f"{response_data}"  # Можно форматировать, если нужно
     # )
-    text_to_send = "Вот результаты запроса к Holos:\n\n" + str(response_data)
-    await send_long_message(message, text_to_send)
+    #   ОТМЕНЯЕМ ВЫВОД СЫРЫХ ДАННЫХ С АПИ
+    # text_to_send = "Вот результаты запроса к Holos:\n\n" + str(response_data)
+    # await send_long_message(message, text_to_send)
 
-    # И пишем фразу, что бот готов к вопросам.
-    await message.answer(
-        "Я собрал необходимые данные для продолжения диалога. Задавайте интересующие вопросы."
+    from services.chat_gpt import get_expert_comment
+    comment = get_expert_comment(
+        user_input="Проанализируй эти данные и дай рекомендации по Human Design",
+        holos_data=response_data
     )
+
+    # 4) Отправляем ответ
+    if len(comment) > 4096:
+        await send_long_message(message, comment)
+    else:
+        await message.answer(comment)
+
+    # 5) Пишем фразу, что бот готов к дополнительным вопросам
+    await message.answer("Я собрал необходимые данные и дал комментарий. Задавайте интересующие вопросы.")

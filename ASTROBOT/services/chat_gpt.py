@@ -39,8 +39,8 @@ def get_expert_comment(user_input: str, holos_data: dict) -> str:
     )
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Или другой, если есть доступ (gpt-4, gpt-4o и т.п.)
+        response = openai.chat.completions.create(
+            model="gpt-4o",  # Или другой, если есть доступ (gpt-4, gpt-4o и т.п.)
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_content}
@@ -53,7 +53,7 @@ def get_expert_comment(user_input: str, holos_data: dict) -> str:
         print("Ошибка при запросе к ChatGPT:", e)
         return "Произошла ошибка при генерации комментария. Попробуйте позже."
     
-    
+
 def get_esoteric_astrology_response(user_input: str,  holos_data: dict) -> str:
     # Текст, который будет передан роли developer (ранее system).
     # Это «старшие» инструкции к боту — его стиль, тон, возможности.
