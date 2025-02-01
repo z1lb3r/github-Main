@@ -19,7 +19,6 @@ def get_pdf_content() -> str:
             page_text = page.extract_text()
             if page_text:
                 text_output.append(page_text)
-
     full_text = "\n".join(text_output)
     _pdf_cache = full_text
     return full_text
