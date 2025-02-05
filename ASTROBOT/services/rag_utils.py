@@ -18,7 +18,6 @@ def load_index_and_chunks():
 
 def get_embedding(text: str):
     response = openai.embeddings.create(input=[text], model=EMBED_MODEL)
-    # Для последних версий openai можно использовать: response.data[0].embedding
     return response.data[0].embedding
 
 def search_chunks(query: str, index, chunks):
@@ -30,20 +29,20 @@ def search_chunks(query: str, index, chunks):
 
 def answer_with_rag(query: str, holos_data: dict) -> str:
     """
-    Формирует prompt для ChatGPT, используя релевантные фрагменты из книги (book1.pdf),
-    полученные через векторный поиск, и добавляет данные из holos_response.
-    Возвращает экспертный комментарий (до 350 слов).
+    Формирует prompt для ChatGPT, используя релевантные фрагменты из книги (book1.pdf)
+    и данные, полученные через API. Теперь ChatGPT должен дать описание и практические рекомендации
+    по 4 аспектам: отношения/любовь, финансы, здоровье, источники счастья.
+    Ответ должен быть не длиннее 350 слов.
     """
     index, chunks = load_index_and_chunks()
     top_fragments = search_chunks(query, index, chunks)
     context_text = "\n\n".join(top_fragments)
-    # Преобразуем holos_data в строку
     holos_text = f"Данные с сайта Holos:\n{holos_data}" if holos_data else ""
     
     system_msg = (
         "Ты — опытный консультант по Human Design и эзотерике. "
-        "Дай конкретный практический комментарий, используя предоставленные данные. "
-        "Не используй фразы типа 'я не знаю', 'не являюсь экспертом'. "
+        "Дай подробное описание и практические рекомендации по 4 аспектам: отношения/любовь, финансы, здоровье, источники счастья. "
+        "Не используй фразы типа 'я не знаю' или 'не являюсь экспертом'. "
         "Ответ должен быть не длиннее 350 слов."
     )
     user_prompt = f"""
@@ -60,7 +59,7 @@ def answer_with_rag(query: str, holos_data: dict) -> str:
             {"role": "system", "content": system_msg},
             {"role": "user", "content": user_prompt}
         ],
-        max_tokens=1200,  # приблизительно до 350 слов
+        max_tokens=1200,
         temperature=0.7
     )
     return response.choices[0].message.content
