@@ -30,12 +30,16 @@ async def handle_human_design(message: Message):
         longitude=longitude,
         altitude=altitude
     )
-
-    # Формируем новый запрос для ChatGPT:
+    
+    # Выводим сырой ответ от API в консоль
+    print("Ответ от API:", response_data)
+    
+    # Далее – обработка через ChatGPT (оставляем без изменений)
     from services.rag_utils import answer_with_rag
     expert_comment = answer_with_rag(
         "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: отношения/любовь, финансы, здоровье, источники счастья.",
-        response_data
+        response_data,
+        mode="4_aspects"
     )
     if len(expert_comment) > 4096:
         chunk_size = 4096
@@ -44,3 +48,4 @@ async def handle_human_design(message: Message):
     else:
         await message.answer(expert_comment)
     await message.answer("Я собрал необходимые данные и дал комментарий. Задавайте интересующие вопросы.")
+

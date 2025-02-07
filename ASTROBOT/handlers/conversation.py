@@ -22,6 +22,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     data = await state.get_data()
     holos_response = data.get("holos_response", {})
 
+    # Используем свободный режим (mode по умолчанию "free")
     expert_comment = answer_with_rag(user_question, holos_response)
     if len(expert_comment) > 4096:
         from handlers.human_design import send_long_message
