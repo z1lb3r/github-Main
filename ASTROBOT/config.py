@@ -18,5 +18,5 @@ SQLITE_DB_PATH = "database.db"
 PDF_FILE_PATH = "book1.pdf"
 
 #   Путь к файлами, которые используем для формирования личности рефлектора у бота-ИИ
-KEY1_DOCX_PATH = "files/key1.docx"
-KEY2_DOCX_PATH = "files/key2.docx"
+KEY1_DOCX_PATH = "datasets/key1.docx"
+KEY2_DOCX_PATH = "datasets/key2.docx"
