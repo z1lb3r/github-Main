@@ -214,59 +214,6 @@ async def give_me_rival(*, id: int):
     return matched_player
 
 
-# Check if a specific deposit transaction has already been processed
-async def is_deposit_processed(tx_id: str) -> bool:
-    connection = sqlite3.connect('gamebot_db.db')
-    cursor = connection.cursor()
-    cursor.execute("""
-        SELECT 1 FROM processed_deposits WHERE tx_id = ?
-    """, (tx_id,))
-    result = cursor.fetchone()
-    connection.close()
-    return result is not None
-
-
-# Record a deposit as "pending" in the database
-async def record_pending_deposit(tx_id: str, user_id: int, amount: float):
-    connection = sqlite3.connect('gamebot_db.db')
-    cursor = connection.cursor()
-    cursor.execute("""
-        INSERT INTO pending_deposits (tx_id, user_id, amount)
-        VALUES (?, ?, ?)
-    """, (tx_id, user_id, amount))
-    connection.commit()
-    connection.close()
-
-
-# Mark a deposit as "processed" after it has been added to the user's balance
-async def mark_deposit_processed(tx_id: str):
-    connection = sqlite3.connect('gamebot_db.db')
-    cursor = connection.cursor()
-    try:
-        # Begin transaction to ensure atomicity
-        cursor.execute("BEGIN TRANSACTION")
-        
-        # Move the transaction from pending_deposits to processed_deposits
-        cursor.execute("""
-            INSERT INTO processed_deposits (tx_id)
-            SELECT tx_id FROM pending_deposits WHERE tx_id = ?
-        """, (tx_id,))
-        
-        # Delete the transaction from pending_deposits
-        cursor.execute("""
-            DELETE FROM pending_deposits WHERE tx_id = ?
-        """, (tx_id,))
-        
-        # Commit transaction
-        connection.commit()
-    except sqlite3.Error as e:
-        # Rollback transaction on error
-        connection.rollback()
-        print(f"Error processing transaction {tx_id}: {e}")
-    finally:
-        connection.close()
-
-
 
 
 

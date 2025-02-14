@@ -1,255 +1,197 @@
 import xlsxwriter
 
-# Создаем новый Excel-файл
-workbook = xlsxwriter.Workbook('MiningFarmModel.xlsx')
+workbook = xlsxwriter.Workbook('MiningFarmModel_DiffLoan_With8Years_Final.xlsx')
 
-##########################################
+###############################################################################
 # Лист "Исходные данные"
 ws_data = workbook.add_worksheet('Исходные данные')
-# Заголовки
 ws_data.write(0, 0, "Параметр")
 ws_data.write(0, 1, "Значение")
 ws_data.write(0, 2, "Описание/Формула")
+data = [
+    ["BTC Price (USD)",         94000,                  ""],
+    ["USD Rate (RUB)",          100,                    ""],
+    ["Mining Difficulty Growth (annual)", 0.20,         "Доходность падает на 20% каждый год"],
+    ["Cost per Miner (RUB)",    100000,                 ""],
+    ["Daily Yield per Miner (BTC)", 0.000067,           ""],
+    ["GPU Installation Cost (RUB)", 60000000,           "с НДС"],
+    ["Number of GPU Installations", 5,                 ""],
+    ["Number of Containers",    5,                     ""],
+    ["Miners per Container",    270,                   ""],
+    ["Total Number of Miners",  "=B9*B10",             "5*270=1350"],
+    ["CAPEX: Initial Investment (RUB)", "=(B8*B7)+(B9*B10*B5)", "300M+135M=435M"],
+    ["Miner Replacement Period (years)", 3,              ""],
+    ["Electricity Cost (RUB/kWh)", 2.5,                    ""],
+    ["Service Cost (RUB/kWh)", 1,                          ""],
+    ["Total Electricity Cost (RUB/kWh)", "=B14+B15",         "2.5+1=3.5"],
+    ["Electricity Consumption per Miner (kW)", 3.5,          ""],
+    ["Tax Rate",                0.15,                   ""],
+    ["Loan Amount (RUB)",       "=B12",                 "435M руб"],
+    ["Loan Interest Rate",      0.24,                   ""],
+    ["Loan Term (years)",       5,                      ""],
+    ["Heat Sale Revenue (RUB/year)", 24805432,           "Доход от продажи тепла"]
+]
+for i, row in enumerate(data, start=1):
+    for j, value in enumerate(row):
+        ws_data.write(i, j, value)
 
-# Заполняем исходные данные (ячейки в Excel начинаются с 1, поэтому row=1 -> Excel row 2)
-ws_data.write(1, 0, "Курс биткойна (USD)")
-ws_data.write(1, 1, 94000)
+###############################################################################
+# Лист "Доходы (5 лет)"
+ws_rev5 = workbook.add_worksheet('Доходы (5 лет)')
+headers = ["Год", "Фактор снижения", "Daily Yield (BTC)", "Daily Yield (USD)",
+           "Daily Yield (RUB)", "Annual Revenue per Miner (RUB)", "Total Annual Revenue (RUB)"]
+for col, header in enumerate(headers):
+    ws_rev5.write(0, col, header)
+for year in range(1, 6):
+    r = year
+    ws_rev5.write(r, 0, year)
+    ws_rev5.write_formula(r, 1, f"=POWER(1-'Исходные данные'!$B$4, A{r+1}-1)")
+    ws_rev5.write_formula(r, 2, f"='Исходные данные'!$B$6 * B{r+1}")
+    ws_rev5.write_formula(r, 3, f"=C{r+1} * 'Исходные данные'!$B$2")
+    ws_rev5.write_formula(r, 4, f"=D{r+1} * 'Исходные данные'!$B$3")
+    ws_rev5.write_formula(r, 5, f"=E{r+1} * 365")
+    ws_rev5.write_formula(r, 6, f"=F{r+1} * 'Исходные данные'!$B$11")
 
-ws_data.write(2, 0, "Курс доллара (RUB)")
-ws_data.write(2, 1, 100)
+###############################################################################
+# Лист "Доходы (8 лет)"
+ws_rev8 = workbook.add_worksheet('Доходы (8 лет)')
+headers = ["Год", "Фактор снижения", "Daily Yield (BTC)", "Daily Yield (USD)",
+           "Daily Yield (RUB)", "Annual Revenue per Miner (RUB)", "Total Annual Revenue (RUB)"]
+for col, header in enumerate(headers):
+    ws_rev8.write(0, col, header)
+for year in range(1, 9):
+    r = year
+    ws_rev8.write(r, 0, year)
+    ws_rev8.write_formula(r, 1, f"=POWER(1-'Исходные данные'!$B$4, A{r+1}-1)")
+    ws_rev8.write_formula(r, 2, f"='Исходные данные'!$B$6 * B{r+1}")
+    ws_rev8.write_formula(r, 3, f"=C{r+1} * 'Исходные данные'!$B$2")
+    ws_rev8.write_formula(r, 4, f"=D{r+1} * 'Исходные данные'!$B$3")
+    ws_rev8.write_formula(r, 5, f"=E{r+1} * 365")
+    ws_rev8.write_formula(r, 6, f"=F{r+1} * 'Исходные данные'!$B$11")
 
-ws_data.write(3, 0, "Стоимость одного майнера (RUB)")
-ws_data.write(3, 1, 100000)
-
-ws_data.write(4, 0, "Доходность майнера в день (BTC)")
-ws_data.write(4, 1, 0.000067)
-
-ws_data.write(5, 0, "Доходность майнера в день (USD)")
-# Формула: =B5*B2, где B5 — доходность в BTC, B2 — курс биткойна
-ws_data.write_formula(5, 1, '=B5*B2')
-
-ws_data.write(6, 0, "Доходность майнера в день (RUB)")
-# Формула: =B6*B3, где B6 — доходность в USD, B3 — курс доллара
-ws_data.write_formula(6, 1, '=B6*B3')
-
-ws_data.write(7, 0, "Количество контейнеров")
-ws_data.write(7, 1, 5)
-
-ws_data.write(8, 0, "Количество майнеров на контейнер")
-ws_data.write(8, 1, 270)
-
-ws_data.write(9, 0, "Общее число майнеров")
-# Формула: =B8*B9 (5 контейнеров * 270 майнеров)
-ws_data.write_formula(9, 1, '=B8*B9')
-
-ws_data.write(10, 0, "Стоимость установки ГПУ (RUB)")
-ws_data.write(10, 1, 60000000)
-
-ws_data.write(11, 0, "Количество установок (ГПУ)")
-ws_data.write(11, 1, 5)
-
-ws_data.write(12, 0, "КАПЕКС: Первоначальные инвестиции (RUB)")
-ws_data.write(12, 1, 550000000)
-
-ws_data.write(13, 0, "Срок замены майнеров (лет)")
-ws_data.write(13, 1, 3)
-
-ws_data.write(14, 0, "Стоимость электроэнергии (RUB/кВт·ч с НДС)")
-ws_data.write(14, 1, 2.5)
-
-ws_data.write(15, 0, "Стоимость обслуживания (RUB/кВт·ч с НДС)")
-ws_data.write(15, 1, 1)
-
-ws_data.write(16, 0, "Общая стоимость электроэнергии с обслуживанием (RUB/кВт·ч)")
-# Формула: =B15+B16 (2.5 + 1)
-ws_data.write_formula(16, 1, '=B15+B16')
-
-ws_data.write(17, 0, "Потребление электроэнергии (кВт) одним майнером")
-ws_data.write(17, 1, 3.5)
-
-ws_data.write(18, 0, "Налоговая ставка")
-ws_data.write(18, 1, 0.15)
-
-ws_data.write(19, 0, "Кредит: Сумма (RUB)")
-ws_data.write(19, 1, 550000000)
-
-ws_data.write(20, 0, "Кредит: Ставка (годовая)")
-ws_data.write(20, 1, 0.24)
-
-ws_data.write(21, 0, "Кредит: Срок (лет)")
-ws_data.write(21, 1, 5)
-
-##########################################
-# Лист "Доходы"
-ws_rev = workbook.add_worksheet('Доходы')
-ws_rev.write(0, 0, "Показатель")
-ws_rev.write(0, 1, "Значение")
-ws_rev.write(0, 2, "Описание/Формула")
-
-ws_rev.write(1, 0, "Доходность майнера в день (BTC)")
-ws_rev.write_formula(1, 1, "='Исходные данные'!B5")
-
-ws_rev.write(2, 0, "Доходность майнера в день (USD)")
-ws_rev.write_formula(2, 1, "='Исходные данные'!B6")
-
-ws_rev.write(3, 0, "Доходность майнера в день (RUB)")
-ws_rev.write_formula(3, 1, "='Исходные данные'!B7")
-
-ws_rev.write(4, 0, "Годовая выручка одного майнера (RUB)")
-ws_rev.write_formula(4, 1, "='Исходные данные'!B7*365")
-
-ws_rev.write(5, 0, "Общая годовая выручка (RUB)")
-# Общая выручка = (Общее число майнеров) * (годовая выручка одного майнера)
-ws_rev.write_formula(5, 1, "='Исходные данные'!B10*B5")
-
-##########################################
+###############################################################################
 # Лист "ОПЕКС"
 ws_opex = workbook.add_worksheet('ОПЕКС')
 ws_opex.write(0, 0, "Показатель")
 ws_opex.write(0, 1, "Значение")
-ws_opex.write(0, 2, "Описание/Формула")
+ws_opex.write(1, 0, "Daily Consumption per Miner (kWh)")
+ws_opex.write_formula(1, 1, "='Исходные данные'!$B$17 * 24")
+ws_opex.write(2, 0, "Annual Consumption per Miner (kWh)")
+ws_opex.write_formula(2, 1, "=B2 * 365")
+ws_opex.write(3, 0, "Annual Electricity Cost per Miner (RUB)")
+ws_opex.write_formula(3, 1, "=B2 * 'Исходные данные'!$B$16")
+ws_opex.write(4, 0, "Total Annual Electricity Cost (RUB)")
+ws_opex.write_formula(4, 1, "='Исходные данные'!$B$11 * B3")
 
-ws_opex.write(1, 0, "Дневное потребление (кВт·ч) одного майнера")
-# Потребление одного майнера (кВт) * 24 часа
-ws_opex.write_formula(1, 1, "='Исходные данные'!B18*24")
+###############################################################################
+# Лист "КАПЕКС (5 лет)"
+ws_capex5 = workbook.add_worksheet('КАПЕКС (5 лет)')
+ws_capex5.write(0, 0, "Показатель")
+ws_capex5.write(0, 1, "Значение (RUB)")
+ws_capex5.write(1, 0, "Initial Investment")
+ws_capex5.write_formula(1, 1, "='Исходные данные'!$B$12")
+ws_capex5.write(2, 0, "Miner Replacement Cost (Year 3)")
+ws_capex5.write_formula(2, 1, "='Исходные данные'!$B$9*'Исходные данные'!$B$10*'Исходные данные'!$B$5")
 
-ws_opex.write(2, 0, "Годовое потребление одного майнера (кВт·ч)")
-ws_opex.write_formula(2, 1, "=B2*365")
+###############################################################################
+# Лист "Финансирование (5 лет)"
+ws_fin5 = workbook.add_worksheet('Финансирование (5 лет)')
+headers_fin5 = ["Год",
+                "Loan1 Total Payment (RUB)",
+                "Loan2 Total Payment (RUB)",
+                "Суммарный Payment (RUB)"]
+for col, header in enumerate(headers_fin5):
+    ws_fin5.write(0, col, header)
+for year in range(1, 6):
+    r = year
+    ws_fin5.write(r, 0, year)
+    # Loan 1: Principal = -('Исходные данные'!$B$12/5); Interest = -((435M - (year-1)*(435M/5))*0.24)
+    ws_fin5.write_formula(r, 1,
+        f"=IF(A{r+1}>=1, -(( 'Исходные данные'!$B$12/5 ) + ( 'Исходные данные'!$B$12 - (A{r+1}-1)*( 'Исходные данные'!$B$12/5 ))*'Исходные данные'!$B$20), 0)")
+    # Loan 2: активен, если год>=3 и год<=7; Principal = -((135M)/5); Interest = -((135M - (year-3)*(135M/5))*0.24)
+    ws_fin5.write_formula(r, 2,
+        f"=IF(AND(A{r+1}>=3, A{r+1}<=7), -(((135000000)/5) + ((135000000 - (A{r+1}-3)*((135000000)/5))*'Исходные данные'!$B$20)), 0)")
+    ws_fin5.write_formula(r, 3, f"=B{r+1} + C{r+1}")
 
-ws_opex.write(3, 0, "Стоимость электроэнергии с обслуживанием (RUB/кВт·ч)")
-# Ссылка на общую стоимость (2.5+1)
-ws_opex.write_formula(3, 1, "='Исходные данные'!B17")  # Если "Общая стоимость" находится в ячейке B17
+###############################################################################
+# Лист "P&L (5 лет)"
+ws_pl5 = workbook.add_worksheet('P&L (5 лет)')
+pl_headers5 = ["Год", "Revenue (RUB)", "OPEX (RUB)", "Depreciation (RUB)",
+               "EBIT (RUB)", "Interest (RUB)", "EBT (RUB)", "Tax (RUB)",
+               "Net Profit (RUB)"]
+for col, header in enumerate(pl_headers5):
+    ws_pl5.write(0, col, header)
+dep = 45000000
+for year in range(1, 6):
+    r = year
+    ws_pl5.write(r, 0, year)
+    ws_pl5.write_formula(r, 1, f"= 'Доходы (5 лет)'!G{r+1} + 'Исходные данные'!$B$22")
+    ws_pl5.write_formula(r, 2, "='ОПЕКС'!B5")
+    ws_pl5.write(r, 3, dep)
+    ws_pl5.write_formula(r, 4, f"=B{r+1} - C{r+1} - D{r+1}")
+    ws_pl5.write_formula(r, 5, f"='Финансирование (5 лет)'!$D${r+1}")
+    ws_pl5.write_formula(r, 6, f"=E{r+1} + F{r+1}")
+    ws_pl5.write_formula(r, 7, f"=G{r+1} * 'Исходные данные'!$B$18")
+    ws_pl5.write_formula(r, 8, f"=G{r+1} - H{r+1}")
 
-ws_opex.write(4, 0, "Годовая стоимость электроэнергии для одного майнера (RUB)")
-# Формула: (Годовое потребление) * (стоимость 1 кВт·ч)
-ws_opex.write_formula(4, 1, "=B3*B4")
+###############################################################################
+# Лист "КАПЕКС (8 лет)" – для 8-летнего варианта
+ws_capex8 = workbook.add_worksheet('КАПЕКС (8 лет)')
+ws_capex8.write(0, 0, "Показатель")
+ws_capex8.write(0, 1, "Значение (RUB)")
+ws_capex8.write(1, 0, "Initial Investment")
+ws_capex8.write_formula(1, 1, "='Исходные данные'!$B$12")
+ws_capex8.write(2, 0, "Miner Replacement Cost (Year 3)")
+ws_capex8.write_formula(2, 1, "='Исходные данные'!$B$9*'Исходные данные'!$B$10*'Исходные данные'!$B$5")
+ws_capex8.write(3, 0, "Miner Replacement Cost (Year 6)")
+ws_capex8.write_formula(3, 1, "='Исходные данные'!$B$9*'Исходные данные'!$B$10*'Исходные данные'!$B$5")
 
-ws_opex.write(5, 0, "Общие годовые операционные расходы (электроэнергия) (RUB)")
-ws_opex.write_formula(5, 1, "='Исходные данные'!B10*B5")
+###############################################################################
+# Лист "Финансирование (8 лет)" – для 8-летнего варианта
+# Здесь три займа:
+# Loan 1: Initial Investment: 435M, Term = 8 (начинается с года 1)
+# Loan 2: Replacement Loan (Year 3): 135M, Term = 8 (начинается с года 3)
+# Loan 3: Replacement Loan (Year 6): 135M, Term = 8 (начинается с года 6)
+ws_fin8 = workbook.add_worksheet('Финансирование (8 лет)')
+ws_fin8.write(0, 0, "Год")
+ws_fin8.write(0, 1, "Loan 1 Total Payment (RUB)")
+ws_fin8.write(0, 2, "Loan 2 Total Payment (RUB)")
+ws_fin8.write(0, 3, "Loan 3 Total Payment (RUB)")
+ws_fin8.write(0, 4, "Суммарный Payment (RUB)")
+for year in range(1, 9):
+    r = year
+    ws_fin8.write(r, 0, year)
+    # Loan 1: Principal_1 = -('Исходные данные'!$B$12/8)
+    ws_fin8.write_formula(r, 1,
+        f"=IF(A{r+1}>=1, -(( 'Исходные данные'!$B$12/8 ) + ( 'Исходные данные'!$B$12 - (A{r+1}-1)*( 'Исходные данные'!$B$12/8 ))*'Исходные данные'!$B$20), 0)")
+    # Loan 2: Replacement, активен, если год>=3; Principal_2 = -((135M)/8)
+    ws_fin8.write_formula(r, 2,
+        f"=IF(A{r+1}>=3, -(((135000000)/8) + ((135000000 - (A{r+1}-3)*((135000000)/8))*'Исходные данные'!$B$20)), 0)")
+    # Loan 3: Replacement, активен, если год>=6; Principal_3 = -((135M)/8)
+    ws_fin8.write_formula(r, 3,
+        f"=IF(A{r+1}>=6, -(((135000000)/8) + ((135000000 - (A{r+1}-6)*((135000000)/8))*'Исходные данные'!$B$20)), 0)")
+    ws_fin8.write_formula(r, 4, f"=B{r+1} + C{r+1} + D{r+1}")
 
-##########################################
-# Лист "КАПЕКС"
-ws_capex = workbook.add_worksheet('КАПЕКС')
-ws_capex.write(0, 0, "Показатель")
-ws_capex.write(0, 1, "Значение")
-ws_capex.write(0, 2, "Описание/Формула")
+###############################################################################
+# Лист "P&L (8 лет)" – отчет о прибылях и убытках для 8-летнего варианта
+ws_pl8 = workbook.add_worksheet('P&L (8 лет)')
+pl_headers8 = ["Год", "Revenue (RUB)", "OPEX (RUB)", "Depreciation (RUB)",
+               "EBIT (RUB)", "Interest (RUB)", "EBT (RUB)", "Tax (RUB)",
+               "Net Profit (RUB)"]
+for col, header in enumerate(pl_headers8):
+    ws_pl8.write(0, col, header)
+dep = 45000000
+for year in range(1, 9):
+    r = year
+    ws_pl8.write(r, 0, year)
+    ws_pl8.write_formula(r, 1, f"= 'Доходы (8 лет)'!G{r+1} + 'Исходные данные'!$B$22")
+    ws_pl8.write_formula(r, 2, "='ОПЕКС'!B5")
+    ws_pl8.write(r, 3, dep)
+    ws_pl8.write_formula(r, 4, f"=B{r+1} - C{r+1} - D{r+1}")
+    ws_pl8.write_formula(r, 5, f"= 'Финансирование (8 лет)'!$E${r+1}")
+    ws_pl8.write_formula(r, 6, f"=E{r+1} + F{r+1}")
+    ws_pl8.write_formula(r, 7, f"=G{r+1} * 'Исходные данные'!$B$18")
+    ws_pl8.write_formula(r, 8, f"=G{r+1} - H{r+1}")
 
-ws_capex.write(1, 0, "Первоначальные инвестиции (RUB)")
-ws_capex.write_formula(1, 1, "='Исходные данные'!B13")
-
-ws_capex.write(2, 0, "Замена майнеров через 3 года (RUB)")
-# Замена майнеров = (Общее число майнеров) * (Стоимость одного майнера)
-ws_capex.write_formula(2, 1, "='Исходные данные'!B10*'Исходные данные'!B4")
-
-ws_capex.write(3, 0, "Амортизация майнеров (лет)")
-ws_capex.write(3, 1, 3)
-ws_capex.write(3, 2, "Срок замены майнеров")
-
-##########################################
-# Лист "Финансирование"
-ws_fin = workbook.add_worksheet('Финансирование')
-ws_fin.write(0, 0, "Показатель")
-ws_fin.write(0, 1, "Значение")
-ws_fin.write(0, 2, "Описание/Формула")
-
-ws_fin.write(1, 0, "Сумма кредита (RUB)")
-ws_fin.write_formula(1, 1, "='Исходные данные'!B20")
-
-ws_fin.write(2, 0, "Ставка кредита (годовая)")
-ws_fin.write_formula(2, 1, "='Исходные данные'!B21")
-
-ws_fin.write(3, 0, "Срок кредита (лет)")
-ws_fin.write_formula(3, 1, "='Исходные данные'!B22")
-
-ws_fin.write(4, 0, "Аннуитетный платеж (RUB)")
-# Функция PMT: =PMT(ставка, срок, -сумма_кредита)
-ws_fin.write_formula(4, 1, "=PMT(B3,B4,-B2)")
-
-##########################################
-# Лист "P&L" (Отчет о прибылях и убытках)
-ws_pl = workbook.add_worksheet('P&L')
-# Заголовки
-headers = ["Показатель", "Год 1", "Год 2", "Год 3", "Год 4", "Год 5"]
-for col, header in enumerate(headers):
-    ws_pl.write(0, col, header)
-
-ws_pl.write(1, 0, "Выручка (RUB)")
-for col in range(1, 6):
-    ws_pl.write_formula(1, col, "='Доходы'!B6")
-
-ws_pl.write(2, 0, "ОПЕКС (электроэнергия) (RUB)")
-for col in range(1, 6):
-    ws_pl.write_formula(2, col, "='ОПЕКС'!B6")
-
-ws_pl.write(3, 0, "Амортизация (майнеры) (RUB)")
-for col in range(1, 6):
-    ws_pl.write_formula(3, col, "='КАПЕКС'!B3/3")
-
-ws_pl.write(4, 0, "EBIT (RUB)")
-ws_pl.write_formula(4, 1, "=B2-B3-B4")
-ws_pl.write_formula(4, 2, "=C2-C3-C4")
-ws_pl.write_formula(4, 3, "=D2-D3-D4")
-ws_pl.write_formula(4, 4, "=E2-E3-E4")
-ws_pl.write_formula(4, 5, "=F2-F3-F4")
-
-ws_pl.write(5, 0, "Процентные расходы (RUB)")
-# Пример упрощенного расчета процентов (аннуитет платеж * ставка)
-for col in range(1, 6):
-    ws_pl.write_formula(5, col, "='Финансирование'!B4*'Финансирование'!B3")
-
-ws_pl.write(6, 0, "EBT (RUB)")
-ws_pl.write_formula(6, 1, "=B4-B5")
-ws_pl.write_formula(6, 2, "=C4-C5")
-ws_pl.write_formula(6, 3, "=D4-D5")
-ws_pl.write_formula(6, 4, "=E4-E5")
-ws_pl.write_formula(6, 5, "=F4-F5")
-
-ws_pl.write(7, 0, "Налог (15%) (RUB)")
-for col in range(1, 6):
-    ws_pl.write_formula(7, col, "=B6*'Исходные данные'!B19")
-
-ws_pl.write(8, 0, "Чистая прибыль (RUB)")
-ws_pl.write_formula(8, 1, "=B6-B7")
-ws_pl.write_formula(8, 2, "=C6-C7")
-ws_pl.write_formula(8, 3, "=D6-D7")
-ws_pl.write_formula(8, 4, "=E6-E7")
-ws_pl.write_formula(8, 5, "=F6-F7")
-
-##########################################
-# Лист "Cash Flow" (Денежный поток)
-ws_cf = workbook.add_worksheet('Cash Flow')
-cf_headers = ["Показатель", "Год 1", "Год 2", "Год 3", "Год 4", "Год 5"]
-for col, header in enumerate(cf_headers):
-    ws_cf.write(0, col, header)
-
-ws_cf.write(1, 0, "Начальный баланс (RUB)")
-for col in range(1, 6):
-    ws_cf.write(1, col, 0)
-
-ws_cf.write(2, 0, "Операционный денежный поток (RUB)")
-# Операционный поток = чистая прибыль + амортизация
-ws_cf.write_formula(2, 1, "='P&L'!B9 + 'КАПЕКС'!B3/3")
-for col in range(2, 6):
-    # Для простоты здесь копируем одно и то же значение
-    ws_cf.write_formula(2, col, "='P&L'!B9 + 'КАПЕКС'!B3/3")
-
-ws_cf.write(3, 0, "Инвестиционный поток (RUB)")
-# В год 1 – первоначальные инвестиции; в год 3 – замена майнеров
-ws_cf.write_formula(3, 1, "=-'Исходные данные'!B13")
-ws_cf.write_formula(3, 3, "=-'КАПЕКС'!B3")
-for col in [2,4,5]:
-    ws_cf.write(3, col, 0)
-
-ws_cf.write(4, 0, "Финансовый поток (RUB)")
-# Отражаем аннуитетный платеж как отток
-for col in range(1, 6):
-    ws_cf.write_formula(4, col, "=-'Финансирование'!B4")
-
-ws_cf.write(5, 0, "Свободный денежный поток (RUB)")
-for col in range(1, 6):
-    # Свободный поток = операционный + инвестиционный + финансовый поток
-    col_letter = chr(65 + col)  # A=65, B=66, etc.
-    ws_cf.write_formula(5, col, "=%s2+%s3+%s4" % (col_letter, col_letter, col_letter))
-
-# Закрываем книгу (сохраняем файл)
+###############################################################################
 workbook.close()
