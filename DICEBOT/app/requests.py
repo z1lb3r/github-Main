@@ -1,34 +1,28 @@
 import sqlite3
 
-
-#   UPDATE BALANCE
-async def update_balance(user_id:int, points:int):
+async def update_balance(user_id: int, points: float):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
     cursor.execute("""
                    UPDATE gamedata
                    SET balance = balance + ?
                    WHERE playerid = ?
-                   """,(points, user_id))
+                   """, (points, user_id))
     connection.commit()
     connection.close()
 
-
-#   GET BALANCE
-async def get_balance(user_id:int):
+async def get_balance(user_id: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
     cursor.execute("""
                    SELECT balance FROM gamedata
                    WHERE playerid = ?
-                   """,(user_id,))
+                   """, (user_id,))
     row = cursor.fetchone()
     connection.commit()
     connection.close()
     return row[0] if row else None
 
-
-#   RESET GAME STATE
 async def reset_game_state(user_id: int, rival_id: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
@@ -36,11 +30,10 @@ async def reset_game_state(user_id: int, rival_id: int):
                    UPDATE gamedata
                    SET status = 0, rid = NULL, value = 0
                    WHERE playerid IN (?,?)
-                   """,(user_id, rival_id))
+                   """, (user_id, rival_id))
     connection.commit()
     connection.close()
 
-#   UPDATE DICE VALUE
 async def update_dice_value(*, user_id: int, dice_value: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
@@ -48,12 +41,10 @@ async def update_dice_value(*, user_id: int, dice_value: int):
                 UPDATE gamedata 
                 SET value = ?
                 WHERE playerid = ?  
-                """,(dice_value, user_id))
+                """, (dice_value, user_id))
     connection.commit()
     connection.close()
 
-
-#   GET DICE VALUE
 async def get_dice_value(*, user_id: int):
     connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
@@ -63,27 +54,19 @@ async def get_dice_value(*, user_id: int):
                    """, (user_id,))
     row = cursor.fetchone()
     connection.close()
-    if row:
-        return row[0]
-    return None
+    return row[0] if row else None
 
-
-#   GET RIVAL ID
 async def get_rival_id(*, user_id: int):
     connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
     cursor.execute("""
                    SELECT rid FROM gamedata
-                   WHERE playerid =?
-                   """,(user_id,))
+                   WHERE playerid = ?
+                   """, (user_id,))
     row = cursor.fetchone()
     connection.close()
-    if row:
-        return row[0]
-    return None
+    return row[0] if row else None
 
-
-#   INCREMENT WIN
 async def increment_win(*, user_id: int):
     connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
@@ -91,12 +74,10 @@ async def increment_win(*, user_id: int):
                    UPDATE gamedata
                    SET wins = COALESCE(wins, 0)+1
                    WHERE playerid = ? 
-                   """,(user_id,))
+                   """, (user_id,))
     connection.commit()
     connection.close()
 
-
-#   INCREMENT LOSSES
 async def increment_losses(*, user_id: int):
     connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
@@ -104,12 +85,10 @@ async def increment_losses(*, user_id: int):
                    UPDATE gamedata
                    SET losses = COALESCE(losses, 0)+1
                    WHERE playerid = ? 
-                   """,(user_id,))
+                   """, (user_id,))
     connection.commit()
     connection.close()
 
-
-#   INCREMENT TIE
 async def increment_tie(*, user_id: int):
     connection = sqlite3.connect("gamebot_db.db")
     cursor = connection.cursor()
@@ -117,21 +96,17 @@ async def increment_tie(*, user_id: int):
                    UPDATE gamedata
                    SET tie = COALESCE(tie, 0)+1
                    WHERE playerid = ? 
-                   """,(user_id,))
+                   """, (user_id,))
     connection.commit()
     connection.close()
 
-
-# INSERT NEW USER 
 async def insert_user(*, id: int, id2: int): 
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-    cursor.execute("INSERT INTO gamedata(playerid, balance) SELECT ?,100  WHERE NOT EXISTS (SELECT 1 FROM gamedata WHERE playerid = ?)",(id, id2))
+    cursor.execute("INSERT INTO gamedata(playerid, balance) SELECT ?,100 WHERE NOT EXISTS (SELECT 1 FROM gamedata WHERE playerid = ?)", (id, id2))
     connection.commit()
     connection.close() 
 
-
-#   GET DATA
 async def get_data():
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
@@ -141,79 +116,104 @@ async def get_data():
     connection.close()
     return row
 
-
-#   CHECK VALUE COLUMN
 async def check_value(*, id: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
     cursor.execute("""
                    SELECT value FROM gamedata
-                   WHERE playerid = ?""",(id,))
+                   WHERE playerid = ?""", (id,))
     row = cursor.fetchone()
     connection.commit()
     connection.close()
     return row
 
-
-#   START SEARCH
 async def start_search(*, id: int, status: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-    cursor.execute("UPDATE gamedata SET status = ? WHERE playerid = ?",(status,id))
+    cursor.execute("UPDATE gamedata SET status = ? WHERE playerid = ?", (status, id))
     connection.commit()
     connection.close()
 
-
-#   SET BALANCE
 async def set_balance(*, id: int, balance: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-    cursor.execute("UPDATE gamedata SET balance = ? WHERE playerid = ?",(balance,id))
+    cursor.execute("UPDATE gamedata SET balance = ? WHERE playerid = ?", (balance, id))
     connection.commit()
     connection.close()    
 
-
-#   GET STATUS  OF A SPECIFIC PLAYER
 async def get_status_of_player(*, playerid: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-    cursor.execute("SELECT status FROM gamedata WHERE playerid =?", (playerid,))
+    cursor.execute("SELECT status FROM gamedata WHERE playerid = ?", (playerid,))
     row = cursor.fetchone()
     connection.commit()
     connection.close()
     return row[0] if row else None
 
-
-#   LOOKING FOR RIVAL
 async def give_me_rival(*, id: int):
     connection = sqlite3.connect('gamebot_db.db')
     cursor = connection.cursor()
-     # Find the earliest player with status=1, excluding the current player
     cursor.execute("""
                    SELECT playerid FROM gamedata
                    WHERE status = 1 AND playerid != ?
                    ORDER BY playerid ASC
                    LIMIT 1
-                   """,(id,))
+                   """, (id,))
     row = cursor.fetchone()
-
     if row is None:
         connection.close()
         return None
     matched_player = row[0]
-
     cursor.execute("""
     UPDATE gamedata
-    SET status = 2, rid =? 
+    SET status = 2, rid = ? 
     WHERE playerid = ?
-    """,(id, matched_player))
-
-
+    """, (id, matched_player))
     connection.commit()
     connection.close()
     return matched_player
 
+# --- Функции для депозитов и вывода ---
 
+async def create_deposit_request(*, playerid: int, amount: float, sender_address: str):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+        INSERT INTO deposits (playerid, amount, sender_address, status)
+        VALUES (?, ?, ?, 'pending')
+    """, (playerid, amount, sender_address))
+    connection.commit()
+    connection.close()
 
+async def update_deposit_status(deposit_id: int, status: str, txid: str = None):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+        UPDATE deposits
+        SET status = ?, txid = ?
+        WHERE id = ?
+    """, (status, txid, deposit_id))
+    connection.commit()
+    connection.close()
 
+async def get_pending_deposits():
+    connection = sqlite3.connect('gamebot_db.db')
+    connection.row_factory = sqlite3.Row
+    cursor = connection.cursor()
+    cursor.execute("""
+        SELECT * FROM deposits
+        WHERE status = 'pending'
+    """)
+    rows = cursor.fetchall()
+    connection.close()
+    return [dict(row) for row in rows]
 
+async def create_withdrawal_request(*, playerid: int, amount: float, recipient_address: str, status: str, txid: str):
+    connection = sqlite3.connect('gamebot_db.db')
+    cursor = connection.cursor()
+    cursor.execute("""
+        INSERT INTO withdrawals (playerid, amount, recipient_address, status, txid)
+        VALUES (?, ?, ?, ?, ?)
+    """, (playerid, amount, recipient_address, status, txid))
+    connection.commit()
+    connection.close()
