@@ -1,3 +1,8 @@
+"""
+Обработчик обычных сообщений пользователя.
+Обрабатывает все сообщения, которые не обработаны другими обработчиками.
+"""
+
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
@@ -9,22 +14,32 @@ router = Router()
 
 @router.message()
 async def conversation_handler(message: Message, state: FSMContext):
+    """
+    Обработчик обычных сообщений пользователя.
+    Генерирует ответы с помощью RAG, отслеживает историю диалога.
+    
+    Args:
+        message (Message): Сообщение Telegram
+        state (FSMContext): Контекст состояния для FSM
+    """
     # Если пользователь находится в процессе прохождения анкеты – не обрабатываем сообщение
     current_state = await state.get_state()
     if current_state is not None:
         return
 
+    # Проверяем наличие активной подписки
     if not user_has_active_subscription(message.from_user.id):
-        await message.answer("Подписка неактивна. Введите /subscribe.")
+        await message.answer("Подписка неактивна. Введите /subscribe для активации.")
         return
 
+    # Получаем данные из состояния
     data = await state.get_data()
     conversation_history = data.get("conversation_history", "")
     
     # Ограничиваем диалог 4 вопросами
     question_count = data.get("question_count", 0)
     if question_count >= 4:
-        await message.answer("за#бал, больше общаться не буду, пшел вон!")
+        await message.answer("Достигнут лимит вопросов. Пожалуйста, начните новую сессию.")
         await state.update_data(conversation_history="", question_count=0)
         return
 
@@ -34,15 +49,27 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Формируем полный prompt, включающий всю историю диалога
     full_prompt = f"История диалога:\n{conversation_history}\n\nВопрос: {message.text}"
     
-    # holos_response сохраняется из предыдущей сессии
+    # Получаем данные Holos из предыдущей сессии
     holos_response = data.get("holos_response", {})
     
-    # Для последующих ответов используем режим "free" с ограничением ~200 слов (600 токенов)
-    answer = answer_with_rag(full_prompt, holos_response, mode="free", conversation_history=conversation_history, max_tokens=600)
+    # Генерируем ответ с помощью RAG
+    answer = answer_with_rag(
+        full_prompt, 
+        holos_response, 
+        mode="free", 
+        conversation_history=conversation_history, 
+        max_tokens=600
+    )
     
     # Добавляем ответ бота в историю
     conversation_history += f"Бот: {answer}\n"
     question_count += 1
-    await state.update_data(conversation_history=conversation_history, question_count=question_count)
     
+    # Сохраняем обновленную историю и счетчик вопросов
+    await state.update_data(
+        conversation_history=conversation_history, 
+        question_count=question_count
+    )
+    
+    # Отправляем ответ пользователю
     await message.answer(answer)

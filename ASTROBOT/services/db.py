@@ -1,8 +1,17 @@
+"""
+Сервис для работы с базой данных SQLite.
+Содержит функции для инициализации БД, управления пользователями и подписками.
+"""
+
 import sqlite3
 from contextlib import closing
 from config import SQLITE_DB_PATH
 
 def init_db():
+    """
+    Инициализирует базу данных SQLite.
+    Создает таблицу пользователей, если она еще не существует.
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute('''
@@ -21,6 +30,13 @@ def init_db():
             ''')
 
 def add_user_if_not_exists(user_id: int, username: str):
+    """
+    Добавляет пользователя в БД, если он еще не существует.
+    
+    Args:
+        user_id (int): ID пользователя в Telegram
+        username (str): Имя пользователя в Telegram
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             row = conn.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -31,6 +47,18 @@ def add_user_if_not_exists(user_id: int, username: str):
                 )
 
 def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_time: str, latitude: float, longitude: float, altitude: float):
+    """
+    Обновляет профиль пользователя в БД.
+    
+    Args:
+        user_id (int): ID пользователя
+        full_name (str): Полное имя пользователя
+        birth_date (str): Дата рождения (ГГГГ-ММ-ДД)
+        birth_time (str): Время рождения (ЧЧ:ММ)
+        latitude (float): Широта места рождения
+        longitude (float): Долгота места рождения
+        altitude (float): Высота места рождения
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
@@ -42,6 +70,15 @@ def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_tim
             )
 
 def get_user_profile(user_id: int) -> dict:
+    """
+    Получает профиль пользователя из БД.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        dict: Словарь с данными пользователя или пустой словарь, если профиль не заполнен
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             row = conn.execute(
@@ -61,6 +98,15 @@ def get_user_profile(user_id: int) -> dict:
             return {}
 
 def user_has_active_subscription(user_id: int) -> bool:
+    """
+    Проверяет, есть ли у пользователя активная подписка.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        bool: True, если подписка активна, иначе False
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             row = conn.execute("SELECT subscription_status FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -69,6 +115,12 @@ def user_has_active_subscription(user_id: int) -> bool:
             return False
 
 def activate_subscription(user_id: int):
+    """
+    Активирует подписку для пользователя на 30 дней.
+    
+    Args:
+        user_id (int): ID пользователя
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
@@ -77,6 +129,12 @@ def activate_subscription(user_id: int):
             )
 
 def deactivate_subscription(user_id: int):
+    """
+    Деактивирует подписку пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+    """
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(

@@ -1,5 +1,10 @@
+"""
+Клавиатуры для Telegram-бота.
+"""
+
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
+# Клавиатура главного меню
 main_menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
