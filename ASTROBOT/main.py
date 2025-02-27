@@ -12,6 +12,7 @@ from handlers.onboarding import router as onboarding_router
 from handlers.section_choice import router as section_choice_router
 from handlers.human_design import router as human_design_router
 from handlers.conversation import router as conversation_router
+from handlers.payment import router as payment_router
 
 from services.db import init_db
 
@@ -38,7 +39,9 @@ def main():
     dp.include_router(onboarding_router)          # Обработчики онбординга
     dp.include_router(section_choice_router)      # Обработчики выбора разделов
     dp.include_router(human_design_router)        # Обработчики для Human Design
+    dp.include_router(payment_router)             # Маршрутизатор для платежей
     dp.include_router(conversation_router)        # Общий обработчик сообщений
+    
 
     # Запускаем поллинг сообщений
     dp.run_polling(bot)

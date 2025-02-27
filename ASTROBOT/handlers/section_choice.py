@@ -5,6 +5,8 @@
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
+from handlers.payment import get_payment_keyboard
+from services.db import user_has_active_subscription
 
 router = Router()
 
@@ -16,13 +18,23 @@ async def subscription_choice(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
-    await message.answer(
-        "Раздел 'Подписка'.\n"
-        "Команды:\n"
-        " - /subscribe (активация)\n"
-        " - /unsubscribe (деактивация)\n"
-        " - /status (проверка статуса)\n"
-    )
+    # Проверяем статус подписки
+    has_subscription = user_has_active_subscription(message.from_user.id)
+    
+    if has_subscription:
+        await message.answer(
+            "У вас активна подписка! Спасибо за поддержку.\n\n"
+            "Команды управления подпиской:\n"
+            " - /status (проверка статуса)\n"
+            " - /unsubscribe (деактивация)\n"
+        )
+    else:
+        await message.answer(
+            "У вас нет активной подписки.\n\n"
+            "Оформите подписку, чтобы получить доступ ко всем функциям бота. "
+            "Нажмите кнопку ниже для оплаты:",
+            reply_markup=get_payment_keyboard()
+        )
 
 @router.message(lambda msg: msg.text and msg.text.lower() == "гороскоп")
 async def horoscope_choice(message: Message):

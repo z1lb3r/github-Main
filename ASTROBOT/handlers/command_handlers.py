@@ -1,6 +1,6 @@
 """
 Обработчики команд Telegram-бота.
-Обрабатывает команды /start, /subscribe, /unsubscribe, /status.
+Обрабатывает команды /start, /subscribe, /unsubscribe, /status, /payment.
 """
 
 from aiogram import Router
@@ -8,6 +8,7 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from handlers.onboarding import start_onboarding
+from handlers.payment import get_payment_keyboard
 
 from .keyboards import main_menu_kb
 from services.db import (
@@ -53,7 +54,8 @@ async def cmd_start(message: Message, state: FSMContext):
             "- Изменить данные\n\n"
             "Или используйте команды:\n"
             "/subscribe, /unsubscribe (подписка)\n"
-            "/status (проверка статуса)\n",
+            "/status (проверка статуса)\n"
+            "/payment (оплата подписки)",
             reply_markup=main_menu_kb
         )
 
@@ -61,13 +63,22 @@ async def cmd_start(message: Message, state: FSMContext):
 async def cmd_subscribe(message: Message):
     """
     Обработчик команды /subscribe.
-    Активирует подписку пользователя.
+    Предлагает пользователю оплатить подписку, если она еще не активирована.
     
     Args:
         message (Message): Сообщение Telegram
     """
-    activate_subscription(message.from_user.id)
-    await message.answer("Подписка активирована! Теперь у вас есть доступ ко всем функциям.")
+    # Проверяем, есть ли уже активная подписка
+    if user_has_active_subscription(message.from_user.id):
+        await message.answer("У вас уже есть активная подписка.")
+        return
+    
+    # Предлагаем оплатить подписку через CrystalPay
+    await message.answer(
+        "Для активации подписки, пожалуйста, оплатите ее. "
+        "Вы можете сделать это через команду /payment.",
+        reply_markup=get_payment_keyboard()
+    )
 
 @router.message(Command("unsubscribe"))
 async def cmd_unsubscribe(message: Message):
@@ -92,3 +103,16 @@ async def cmd_status(message: Message):
     """
     status = "активна" if user_has_active_subscription(message.from_user.id) else "не активна"
     await message.answer(f"Ваша подписка сейчас {status}.")
+
+@router.message(Command("pay"))
+async def cmd_pay(message: Message):
+    """
+    Обработчик команды /pay.
+    Альтернативная команда для /payment.
+    
+    Args:
+        message (Message): Сообщение Telegram
+    """
+    # Перенаправляем на обработчик /payment
+    from handlers.payment import cmd_payment
+    await cmd_payment(message)

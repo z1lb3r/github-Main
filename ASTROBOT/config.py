@@ -23,3 +23,18 @@ PDF_FILE_PATH = "book1.pdf"     # Путь к PDF-файлу с экспертн
 # Пути к файлам для формирования личности рефлектора у бота
 KEY1_DOCX_PATH = "datasets/key1.docx"
 KEY2_DOCX_PATH = "datasets/key2.docx"
+
+# Настройки CrystalPay API
+CRYSTALPAY_SECRET_KEY = "efec7f0c4fcf79d95c64005fd702aee542c890c7"
+CRYSTALPAY_SALT = "0f59e52269077cdea009bebc9d686f5d3ff8ca3a"
+CRYSTALPAY_API_URL = "https://api.crystalpay.io/v3"  # Обновлено до v3
+CRYSTALPAY_CASHIER_URL = "https://crystalpay.io/invoice"  # Обновлен формат URL
+CRYSTALPAY_WALLET_ID = "astrobotv1"  # ID кассы
+
+# Настройки подписки
+SUBSCRIPTION_PRICE = 5.00  # Цена подписки в рублях
+SUBSCRIPTION_CURRENCY = "RUB"  # Валюта для оплаты
+SUBSCRIPTION_DURATION_DAYS = 30  # Продолжительность подписки в днях
+
+# Настройки бота
+BOT_USERNAME = "cz_astrobot"  # Username вашего бота без символа @
