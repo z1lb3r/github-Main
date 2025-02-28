@@ -31,10 +31,20 @@ CRYSTALPAY_API_URL = "https://api.crystalpay.io/v3"  # Обновлено до v
 CRYSTALPAY_CASHIER_URL = "https://crystalpay.io/invoice"  # Обновлен формат URL
 CRYSTALPAY_WALLET_ID = "astrobotv1"  # ID кассы
 
-# Настройки подписки
-SUBSCRIPTION_PRICE = 5.00  # Цена подписки в рублях
-SUBSCRIPTION_CURRENCY = "RUB"  # Валюта для оплаты
-SUBSCRIPTION_DURATION_DAYS = 30  # Продолжительность подписки в днях
+# Настройки оплаты
+DEPOSIT_AMOUNT_RUB = 500  # Стандартная сумма пополнения в рублях
+DEPOSIT_AMOUNT_USD = 5.00  # Эквивалент в долларах США
+DISPLAY_CURRENCY = "USD"  # Валюта для отображения баланса пользователю
+
+# Настройки системы оплаты токенов
+# $15 за 1 миллион токенов = $0.000015 за 1 токен
+TOKEN_PRICE = 0.000015  # Цена за 1 токен в долларах США
+MIN_REQUIRED_BALANCE = 0.1  # Минимальный баланс для общения с ботом (в долларах)
+
+# Коэффициенты для различных типов запросов
+INPUT_TOKEN_MULTIPLIER = 0.5  # Множитель для входящих токенов (дешевле, чем исходящие)
+OUTPUT_TOKEN_MULTIPLIER = 1.0  # Множитель для исходящих токенов (полная стоимость)
+HD_ANALYSIS_TOKENS = 6667  # Эквивалент токенов для анализа Human Design (~$0.1)
 
 # Настройки бота
 BOT_USERNAME = "cz_astrobot"  # Username вашего бота без символа @

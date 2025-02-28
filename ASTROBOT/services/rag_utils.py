@@ -6,14 +6,38 @@
 import os
 import re
 import openai
+import tiktoken
 from .pdf_data import get_pdf_content
 from config import OPENAI_API_KEY
 
 # Модель ChatGPT для генерации ответов
 CHAT_MODEL = "gpt-4o"
+# Модель для подсчета токенов
+ENCODING_MODEL = "cl100k_base"  # Энкодинг для GPT-4
 
 # Устанавливаем API ключ для OpenAI
 openai.api_key = OPENAI_API_KEY
+
+def count_tokens(text: str) -> int:
+    """
+    Подсчитывает количество токенов в тексте.
+    
+    Args:
+        text (str): Текст для подсчета токенов
+        
+    Returns:
+        int: Количество токенов
+    """
+    try:
+        encoding = tiktoken.get_encoding(ENCODING_MODEL)
+        return len(encoding.encode(text))
+    except Exception as e:
+        print(f"Ошибка при подсчете токенов: {str(e)}")
+        # Если не удалось использовать tiktoken, используем приблизительный подсчет
+        # В среднем 1 токен ~ 4 символа для английского текста
+        # и ~2-3 символа для русского текста
+        words = text.split()
+        return len(words) * 1.5  # Примерная оценка
 
 def load_gene_keys_text(holos_data: dict) -> str:
     """

@@ -15,9 +15,9 @@ from config import (
     CRYSTALPAY_API_URL,
     CRYSTALPAY_CASHIER_URL,
     CRYSTALPAY_WALLET_ID,
-    SUBSCRIPTION_PRICE,
-    SUBSCRIPTION_CURRENCY,
-    SUBSCRIPTION_DURATION_DAYS,
+    DEPOSIT_AMOUNT_RUB,
+    DEPOSIT_AMOUNT_USD,
+    DISPLAY_CURRENCY,
     BOT_USERNAME
 )
 
@@ -41,10 +41,10 @@ async def create_payment(user_id: int, email: str = None) -> Tuple[bool, Dict]:
     params = {
         "auth_login": CRYSTALPAY_WALLET_ID,
         "auth_secret": CRYSTALPAY_SECRET_KEY,
-        "amount": SUBSCRIPTION_PRICE,
+        "amount": DEPOSIT_AMOUNT_RUB,
         "type": "purchase",  # Тип операции: purchase или topup
         "lifetime": 1440,  # Время жизни счета в минутах (24 часа)
-        "description": f"Подписка на бота @{BOT_USERNAME} на {SUBSCRIPTION_DURATION_DAYS} дней",
+        "description": f"Пополнение баланса бота @{BOT_USERNAME} на ${DEPOSIT_AMOUNT_USD:.2f}",
         "redirect_url": f"https://t.me/{BOT_USERNAME}",  # URL для перенаправления после оплаты
         "extra": order_id  # Сохраняем order_id как дополнительную информацию
     }
@@ -167,7 +167,7 @@ async def _make_request(endpoint: str, params: Dict) -> Dict:
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=params) as response:
+            async with session.post(url, headers=headers, data=params) as response:
                 print(f"Статус ответа: {response.status}")
                 response_data = await response.json()
                 print(f"Ответ: {json.dumps(response_data, indent=2)}")

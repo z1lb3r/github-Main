@@ -1,21 +1,87 @@
+"""
+Обработчик для раздела "Хьюман дизайн".
+Получает данные через API Holos и генерирует ответ с помощью RAG.
+Использует систему баланса для оплаты анализа.
+"""
+
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from services.db import get_user_profile, user_has_active_subscription
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from services.db import get_user_balance, subtract_from_balance, get_user_profile
 from services.holos_api import send_request_to_holos
+from services.rag_utils import answer_with_rag, count_tokens
+from config import (
+    HOLOS_DREAM_URL, 
+    TOKEN_PRICE, 
+    DEPOSIT_AMOUNT_USD, 
+    DISPLAY_CURRENCY,
+    HD_ANALYSIS_TOKENS
+)
 
 router = Router()
 
 @router.message(lambda msg: msg.text and msg.text.lower() == "хьюман дизайн")
 async def handle_human_design(message: Message, state: FSMContext):
-    if not user_has_active_subscription(message.from_user.id):
-        await message.answer("У вас нет активной подписки. Введите /subscribe для активации.")
+    """
+    Обработчик для раздела "Хьюман дизайн".
+    Получает данные о пользователе, отправляет запрос к API Holos,
+    генерирует ответ с помощью RAG. Списывает средства за анализ.
+    
+    Args:
+        message (Message): Сообщение Telegram
+        state (FSMContext): Контекст состояния для FSM
+    """
+    # Рассчитываем стоимость анализа Human Design
+    hd_cost = HD_ANALYSIS_TOKENS * TOKEN_PRICE
+    
+    # Проверяем наличие достаточного баланса
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    
+    if balance < hd_cost:
+        # Если баланс недостаточен, предлагаем пополнить
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            callback_data="deposit_balance"
+        )
+        await message.answer(
+            f"⚠️ Недостаточно средств на балансе для анализа Human Design!\n\n"
+            f"Стоимость анализа: ${hd_cost:.6f}\n"
+            f"Ваш текущий баланс: ${balance:.6f}\n\n"
+            "Пожалуйста, пополните баланс для проведения анализа.",
+            reply_markup=builder.as_markup()
+        )
         return
 
-    profile = get_user_profile(message.from_user.id)
+    # Получаем профиль пользователя
+    profile = get_user_profile(user_id)
     if not profile:
-        await message.answer("Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить данные' или введите /start.")
+        await message.answer(
+            "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить данные' или введите /start."
+        )
         return
+
+    # Списываем средства за анализ Human Design
+    success = subtract_from_balance(
+        user_id, 
+        hd_cost, 
+        f"Анализ Human Design ({HD_ANALYSIS_TOKENS} токенов)"
+    )
+    
+    if not success:
+        await message.answer(
+            "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
+        )
+        return
+    
+    # Уведомляем пользователя о списании средств
+    await message.answer(
+        f"💸 С вашего баланса списано ${hd_cost:.6f} за анализ Human Design.\n"
+        f"Выполняем анализ, пожалуйста, подождите..."
+    )
 
     # Формируем строку даты и времени рождения
     date_str = f"{profile['birth_date']} {profile['birth_time']}"  # формат: ГГГГ-ММ-ДД ЧЧ:ММ
@@ -23,7 +89,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     longitude = profile["longitude"]
     altitude = profile["altitude"]
 
-    from config import HOLOS_DREAM_URL
+    # Отправляем запрос к API Holos
     response_data = await send_request_to_holos(
         holos_url=HOLOS_DREAM_URL,
         date_str=date_str,
@@ -32,7 +98,7 @@ async def handle_human_design(message: Message, state: FSMContext):
         altitude=altitude
     )
     
-    # Собираем данные пользователя в виде строки (информация из базы + API)
+    # Собираем данные пользователя в виде строки
     user_profile_info = (
         f"Дата рождения: {profile['birth_date']}\n"
         f"Время рождения: {profile['birth_time']}\n"
@@ -45,27 +111,35 @@ async def handle_human_design(message: Message, state: FSMContext):
         "api_response": response_data
     }
     
-    from services.rag_utils import answer_with_rag
-    # Режим "4_aspects": первый ответ должен определить тип личности и дать рекомендации
+    # Генерируем ответ с помощью RAG
     expert_comment = answer_with_rag(
-        "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: отношения/любовь, финансы, здоровье, источники счастья.",
+        "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: "
+        "отношения/любовь, финансы, здоровье, источники счастья.",
         holos_data_combined,
         mode="4_aspects",
         conversation_history="",
         max_tokens=1200
     )
-    # Выводим первичный ответ
+    
+    # Отправляем ответ
     if len(expert_comment) > 4096:
         chunk_size = 4096
         for i in range(0, len(expert_comment), chunk_size):
             await message.answer(expert_comment[i:i+chunk_size])
     else:
         await message.answer(expert_comment)
-    await message.answer("Я собрал необходимые данные и дал комментарий. Теперь можешь задать до 4 вопросов по теме.")
     
-    # Сохраняем начальную историю диалога и данные API в состоянии, чтобы последующие вопросы учитывали контекст
+    # Получаем обновленный баланс и сообщаем о возможности задать вопросы
+    new_balance = get_user_balance(user_id)
+    await message.answer(
+        f"Анализ Human Design завершен!\n\n"
+        f"💰 Ваш текущий баланс: ${new_balance:.6f}\n\n"
+        "Теперь вы можете задавать вопросы по теме. "
+        "Каждый вопрос и ответ будут тарифицироваться согласно количеству используемых токенов."
+    )
+    
+    # Сохраняем начальную историю диалога и данные API в состоянии
     await state.update_data(
         conversation_history=f"Бот: {expert_comment}\n",
-        question_count=0,
         holos_response=holos_data_combined
     )

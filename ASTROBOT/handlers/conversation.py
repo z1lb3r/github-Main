@@ -1,14 +1,25 @@
 """
 Обработчик обычных сообщений пользователя.
 Обрабатывает все сообщения, которые не обработаны другими обработчиками.
+Реализует систему списания средств за использование бота.
 """
 
+import math
 from aiogram import Router
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from services.db import user_has_active_subscription
-from services.rag_utils import answer_with_rag
+from services.db import get_user_balance, subtract_from_balance
+from services.rag_utils import answer_with_rag, count_tokens
+from config import (
+    TOKEN_PRICE, 
+    MIN_REQUIRED_BALANCE, 
+    DEPOSIT_AMOUNT_USD, 
+    DISPLAY_CURRENCY,
+    INPUT_TOKEN_MULTIPLIER,
+    OUTPUT_TOKEN_MULTIPLIER
+)
 
 router = Router()
 
@@ -16,7 +27,8 @@ router = Router()
 async def conversation_handler(message: Message, state: FSMContext):
     """
     Обработчик обычных сообщений пользователя.
-    Генерирует ответы с помощью RAG, отслеживает историю диалога.
+    Генерирует ответы с помощью RAG, отслеживает историю диалога,
+    и списывает средства за использование.
     
     Args:
         message (Message): Сообщение Telegram
@@ -27,22 +39,30 @@ async def conversation_handler(message: Message, state: FSMContext):
     if current_state is not None:
         return
 
-    # Проверяем наличие активной подписки
-    if not user_has_active_subscription(message.from_user.id):
-        await message.answer("Подписка неактивна. Введите /subscribe для активации.")
+    # Проверяем наличие достаточного баланса
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    
+    if balance < MIN_REQUIRED_BALANCE:
+        # Если баланс недостаточен, предлагаем пополнить
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            callback_data="deposit_balance"
+        )
+        await message.answer(
+            f"⚠️ Недостаточно средств на балансе!\n\n"
+            f"Ваш текущий баланс: ${balance:.2f}\n"
+            f"Минимальный баланс для общения: ${MIN_REQUIRED_BALANCE:.2f}\n\n"
+            "Пожалуйста, пополните баланс для продолжения общения с ботом.",
+            reply_markup=builder.as_markup()
+        )
         return
 
     # Получаем данные из состояния
     data = await state.get_data()
     conversation_history = data.get("conversation_history", "")
     
-    # Ограничиваем диалог 4 вопросами
-    question_count = data.get("question_count", 0)
-    if question_count >= 4:
-        await message.answer("Достигнут лимит вопросов. Пожалуйста, начните новую сессию.")
-        await state.update_data(conversation_history="", question_count=0)
-        return
-
     # Добавляем новое сообщение пользователя в историю
     conversation_history += f"Пользователь: {message.text}\n"
     
@@ -51,6 +71,48 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Получаем данные Holos из предыдущей сессии
     holos_response = data.get("holos_response", {})
+    
+    # Подсчитываем количество токенов во входящем сообщении
+    input_tokens = count_tokens(message.text)
+    
+    # Оцениваем стоимость запроса (используем множитель для входящих токенов)
+    estimated_cost = input_tokens * TOKEN_PRICE * INPUT_TOKEN_MULTIPLIER
+    
+    # Проверяем, хватает ли средств на обработку запроса
+    if balance < estimated_cost:
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            callback_data="deposit_balance"
+        )
+        await message.answer(
+            f"⚠️ Недостаточно средств для обработки этого сообщения!\n\n"
+            f"Требуется: ${estimated_cost:.6f}\n"
+            f"Ваш баланс: ${balance:.6f}\n\n"
+            f"Стоимость обработки: {input_tokens} токенов × ${TOKEN_PRICE:.6f} × {INPUT_TOKEN_MULTIPLIER} = ${estimated_cost:.6f}\n\n"
+            "Пожалуйста, пополните баланс или отправьте более короткое сообщение.",
+            reply_markup=builder.as_markup()
+        )
+        return
+    
+    # Списываем средства за обработку запроса
+    success = subtract_from_balance(
+        user_id, 
+        estimated_cost, 
+        f"Обработка запроса ({input_tokens} токенов)"
+    )
+    
+    if not success:
+        await message.answer(
+            "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
+        )
+        return
+    
+    # Уведомляем пользователя о списании средств
+    await message.answer(
+        f"💸 С вашего баланса списано ${estimated_cost:.6f} за обработку запроса.\n"
+        f"Обрабатываем ваш запрос..."
+    )
     
     # Генерируем ответ с помощью RAG
     answer = answer_with_rag(
@@ -61,15 +123,52 @@ async def conversation_handler(message: Message, state: FSMContext):
         max_tokens=600
     )
     
-    # Добавляем ответ бота в историю
-    conversation_history += f"Бот: {answer}\n"
-    question_count += 1
+    # Подсчитываем количество токенов в ответе
+    output_tokens = count_tokens(answer)
     
-    # Сохраняем обновленную историю и счетчик вопросов
-    await state.update_data(
-        conversation_history=conversation_history, 
-        question_count=question_count
+    # Оцениваем стоимость ответа (используем множитель для исходящих токенов)
+    response_cost = output_tokens * TOKEN_PRICE * OUTPUT_TOKEN_MULTIPLIER
+    
+    # Проверяем, хватает ли средств на получение ответа
+    remaining_balance = get_user_balance(user_id)
+    if remaining_balance < response_cost:
+        builder = InlineKeyboardBuilder()
+        builder.button(
+            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            callback_data="deposit_balance"
+        )
+        await message.answer(
+            f"⚠️ Недостаточно средств для получения полного ответа!\n\n"
+            f"Требуется: ${response_cost:.6f}\n"
+            f"Ваш баланс: ${remaining_balance:.6f}\n\n"
+            "Пожалуйста, пополните баланс для получения полного ответа.",
+            reply_markup=builder.as_markup()
+        )
+        return
+    
+    # Списываем средства за получение ответа
+    success = subtract_from_balance(
+        user_id, 
+        response_cost, 
+        f"Получение ответа ({output_tokens} токенов)"
     )
     
-    # Отправляем ответ пользователю
-    await message.answer(answer)
+    if not success:
+        await message.answer(
+            "Произошла ошибка при списании средств за ответ. Пожалуйста, попробуйте позже."
+        )
+        return
+    
+    # Добавляем ответ бота в историю
+    conversation_history += f"Бот: {answer}\n"
+    
+    # Сохраняем обновленную историю
+    await state.update_data(conversation_history=conversation_history)
+    
+    # Отправляем ответ пользователю с информацией о стоимости
+    new_balance = get_user_balance(user_id)
+    await message.answer(
+        f"{answer}\n\n"
+        f"💸 Стоимость ответа: ${response_cost:.6f} ({output_tokens} токенов)\n"
+        f"💰 Ваш текущий баланс: ${new_balance:.6f}"
+    )
