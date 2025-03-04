@@ -10,12 +10,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from services.crystalpay import create_payment, check_payment
-from services.db import add_to_balance, get_user_balance, get_transaction_history
+from services.db import add_to_balance, get_user_balance, get_transaction_history, get_referrals, activate_referral
 from config import (
     DEPOSIT_AMOUNT_USD, 
     DEPOSIT_AMOUNT_RUB, 
     DISPLAY_CURRENCY, 
-    MIN_REQUIRED_BALANCE
+    MIN_REQUIRED_BALANCE,
+    REFERRAL_REWARD_USD
 )
 
 router = Router()
@@ -156,12 +157,25 @@ async def check_deposit_status(callback: CallbackQuery):
                 DEPOSIT_AMOUNT_RUB   # Оригинальная сумма
             )
             
-            await callback.message.answer(
-                "🎉 Оплата успешно проведена!\n\n"
-                f"Ваш баланс пополнен на ${DEPOSIT_AMOUNT_USD:.2f}.\n"
-                f"Текущий баланс: ${new_balance:.2f}\n\n"
-                "Теперь вы можете использовать бота."
-            )
+            # Проверяем, пришел ли пользователь по реферальной ссылке и активируем её
+            referrals = get_referrals(user_id)
+            if referrals and any(ref['status'] == 'pending' for ref in referrals):
+                # Это активирует реферальную связь и начислит вознаграждение рефереру
+                activate_referral(user_id, DEPOSIT_AMOUNT_USD)
+                
+                await callback.message.answer(
+                    "🎉 Оплата успешно проведена!\n\n"
+                    f"Ваш баланс пополнен на ${DEPOSIT_AMOUNT_USD:.2f}.\n"
+                    f"Текущий баланс: ${new_balance:.2f}\n\n"
+                    "Вы пришли по реферальной ссылке - ваш реферер получил вознаграждение!"
+                )
+            else:
+                await callback.message.answer(
+                    "🎉 Оплата успешно проведена!\n\n"
+                    f"Ваш баланс пополнен на ${DEPOSIT_AMOUNT_USD:.2f}.\n"
+                    f"Текущий баланс: ${new_balance:.2f}\n\n"
+                    "Теперь вы можете использовать бота."
+                )
         elif state == "pending" or state == "processing":
             # Если платеж еще в ожидании или обработке
             await callback.message.answer(

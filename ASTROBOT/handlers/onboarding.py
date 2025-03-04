@@ -1,160 +1,269 @@
 """
-Обработчики для процесса онбординга (заполнения анкеты) пользователя.
+Обработчики для онбординга новых пользователей.
+Реализует анкетирование для сбора данных о пользователе.
 """
 
-from aiogram import Router
+from aiogram import Router, F
 from aiogram.types import Message
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 import aiohttp
+import asyncio
+import json
 
 from services.db import update_user_profile
+from .keyboards import main_menu_kb
 
+# Создаем экземпляр роутера
 router = Router()
 
+# Определяем состояния для FSM
 class OnboardingStates(StatesGroup):
-    """
-    Состояния для FSM (Finite State Machine) процесса онбординга.
-    """
-    waiting_for_full_name = State()
+    waiting_for_name = State()
     waiting_for_birth_date = State()
     waiting_for_birth_time = State()
-    waiting_for_birth_city = State()
+    waiting_for_birth_location = State()
 
+# Функция геокодирования для получения координат по названию места
+async def geocode_location(location_text: str):
+    """
+    Получает географические координаты и высоту по названию места с помощью Nominatim API.
+    
+    Args:
+        location_text (str): Название места для геокодирования (например, "Москва, Россия")
+        
+    Returns:
+        tuple: (latitude, longitude, altitude) или (0.0, 0.0, 0.0) в случае ошибки
+    """
+    print(f"Геокодирование местоположения: {location_text}")
+    
+    # Нейтральные значения по умолчанию
+    default_latitude = 0.0
+    default_longitude = 0.0
+    default_altitude = 0.0
+    
+    try:
+        # Делаем запрос к Nominatim API (OpenStreetMap)
+        nominatim_url = "https://nominatim.openstreetmap.org/search"
+        
+        params = {
+            "q": location_text,
+            "format": "json",
+            "limit": 1,
+            "addressdetails": 1
+        }
+        
+        headers = {
+            "User-Agent": "AstroBot/1.0"  # Nominatim требует User-Agent
+        }
+        
+        # Выполняем запрос
+        async with aiohttp.ClientSession() as session:
+            async with session.get(nominatim_url, params=params, headers=headers) as response:
+                if response.status != 200:
+                    print(f"Ошибка API Nominatim: HTTP {response.status}")
+                    return default_latitude, default_longitude, default_altitude
+                
+                data = await response.json()
+                
+                if not data:
+                    print(f"Место '{location_text}' не найдено")
+                    return default_latitude, default_longitude, default_altitude
+                
+                # Получаем координаты
+                latitude = float(data[0]["lat"])
+                longitude = float(data[0]["lon"])
+                
+                # Делаем задержку перед вторым запросом (согласно политике использования API)
+                await asyncio.sleep(1)
+                
+                # Теперь запрашиваем высоту через Open-Elevation API
+                try:
+                    elevation_url = "https://api.open-elevation.com/api/v1/lookup"
+                    elevation_params = {
+                        "locations": f"{latitude},{longitude}"
+                    }
+                    
+                    async with session.get(elevation_url, params=elevation_params) as elev_response:
+                        if elev_response.status == 200:
+                            elev_data = await elev_response.json()
+                            altitude = elev_data["results"][0]["elevation"]
+                            print(f"Получены координаты: {latitude}, {longitude}, высота: {altitude}")
+                        else:
+                            altitude = default_altitude
+                            print(f"Не удалось получить данные о высоте, используем значение по умолчанию")
+                except Exception as e:
+                    altitude = default_altitude
+                    print(f"Ошибка при получении высоты: {str(e)}")
+                
+                return latitude, longitude, altitude
+                
+    except Exception as e:
+        print(f"Ошибка геокодирования: {str(e)}")
+        return default_latitude, default_longitude, default_altitude
+
+# Функция для начала онбординга
 async def start_onboarding(message: Message, state: FSMContext):
     """
-    Функция запуска процесса онбординга.
+    Начинает процесс онбординга (анкетирования) пользователя.
     
     Args:
         message (Message): Сообщение Telegram
-        state (FSMContext): Контекст состояния для FSM
+        state (FSMContext): Контекст состояния FSM
     """
-    await message.answer("Добро пожаловать! Для работы бота, пожалуйста, заполните анкету.\nВведите, пожалуйста, ваше имя и фамилию:")
-    await state.set_state(OnboardingStates.waiting_for_full_name)
+    await state.set_state(OnboardingStates.waiting_for_name)
+    await message.answer("Пожалуйста, введите ваше полное имя:")
 
-@router.message(OnboardingStates.waiting_for_full_name)
-async def process_full_name(message: Message, state: FSMContext):
+# Обработчик ввода имени
+@router.message(OnboardingStates.waiting_for_name)
+async def process_name(message: Message, state: FSMContext):
     """
-    Обработчик ввода имени и фамилии пользователя.
+    Обрабатывает ввод имени пользователя.
     
     Args:
         message (Message): Сообщение Telegram
-        state (FSMContext): Контекст состояния для FSM
+        state (FSMContext): Контекст состояния FSM
     """
-    await state.update_data(full_name=message.text.strip())
-    await message.answer("Введите дату рождения в формате ГГГГ-ММ-ДД:")
+    # Сохраняем имя в данных состояния
+    await state.update_data(full_name=message.text)
+    
+    # Переходим к следующему состоянию
     await state.set_state(OnboardingStates.waiting_for_birth_date)
+    
+    # Запрашиваем дату рождения
+    await message.answer(
+        "Спасибо! Теперь введите дату вашего рождения в формате ГГГГ-ММ-ДД.\n"
+        "Например: 1990-01-15"
+    )
 
+# Обработчик ввода даты рождения
 @router.message(OnboardingStates.waiting_for_birth_date)
 async def process_birth_date(message: Message, state: FSMContext):
     """
-    Обработчик ввода даты рождения пользователя.
+    Обрабатывает ввод даты рождения пользователя.
     
     Args:
         message (Message): Сообщение Telegram
-        state (FSMContext): Контекст состояния для FSM
+        state (FSMContext): Контекст состояния FSM
     """
-    await state.update_data(birth_date=message.text.strip())
-    await message.answer("Введите время рождения в формате ЧЧ:ММ:")
+    # Проверяем формат даты
+    date_text = message.text.strip()
+    
+    # Очень простая проверка формата даты
+    if len(date_text.split('-')) != 3 or len(date_text) < 8:
+        await message.answer(
+            "Пожалуйста, введите дату в формате ГГГГ-ММ-ДД.\n"
+            "Например: 1990-01-15"
+        )
+        return
+    
+    # Сохраняем дату рождения в данных состояния
+    await state.update_data(birth_date=date_text)
+    
+    # Переходим к следующему состоянию
     await state.set_state(OnboardingStates.waiting_for_birth_time)
+    
+    # Запрашиваем время рождения
+    await message.answer(
+        "Отлично! Теперь введите время вашего рождения в формате ЧЧ:ММ.\n"
+        "Например: 14:30\n\n"
+        "Если вы не знаете точное время, введите приблизительное или 12:00."
+    )
 
+# Обработчик ввода времени рождения
 @router.message(OnboardingStates.waiting_for_birth_time)
 async def process_birth_time(message: Message, state: FSMContext):
     """
-    Обработчик ввода времени рождения пользователя.
+    Обрабатывает ввод времени рождения пользователя.
     
     Args:
         message (Message): Сообщение Telegram
-        state (FSMContext): Контекст состояния для FSM
+        state (FSMContext): Контекст состояния FSM
     """
-    await state.update_data(birth_time=message.text.strip())
-    await message.answer("Введите название города рождения:")
-    await state.set_state(OnboardingStates.waiting_for_birth_city)
-
-@router.message(OnboardingStates.waiting_for_birth_city)
-async def process_birth_city(message: Message, state: FSMContext):
-    """
-    Обработчик ввода города рождения пользователя.
-    Определяет координаты города и высоту над уровнем моря.
+    # Проверяем формат времени
+    time_text = message.text.strip()
     
-    Args:
-        message (Message): Сообщение Telegram
-        state (FSMContext): Контекст состояния для FSM
-    """
-    city = message.text.strip()
-    
-    # Получаем координаты города
-    coordinates = await get_coordinates(city)
-    if not coordinates:
-        await message.answer("Не удалось определить координаты для данного города. Попробуйте ввести другое название:")
+    # Очень простая проверка формата времени
+    if len(time_text.split(':')) != 2 or len(time_text) < 4:
+        await message.answer(
+            "Пожалуйста, введите время в формате ЧЧ:ММ.\n"
+            "Например: 14:30"
+        )
         return
     
-    lat, lon, alt = coordinates
+    # Сохраняем время рождения в данных состояния
+    await state.update_data(birth_time=time_text)
     
-    # Сохраняем координаты в состоянии
-    await state.update_data(birth_latitude=lat, birth_longitude=lon, birth_altitude=alt)
+    # Переходим к следующему состоянию
+    await state.set_state(OnboardingStates.waiting_for_birth_location)
     
-    # Получаем все данные из состояния
-    data = await state.get_data()
-    user_id = message.from_user.id
-    
-    # Обновляем профиль пользователя в БД
-    update_user_profile(
-        user_id=user_id,
-        full_name=data["full_name"],
-        birth_date=data["birth_date"],
-        birth_time=data["birth_time"],
-        latitude=lat,
-        longitude=lon,
-        altitude=alt
-    )
-    
-    # Очищаем состояние
-    await state.clear()
-    
-    # Показываем главное меню
-    from handlers.keyboards import main_menu_kb
+    # Запрашиваем место рождения
     await message.answer(
-        f"Анкета заполнена, {data['full_name']}!\nДобро пожаловать в главное меню.",
-        reply_markup=main_menu_kb
+        "Почти готово! Теперь введите место вашего рождения (город, страна).\n"
+        "Например: Москва, Россия или London, UK"
     )
 
-async def get_coordinates(city: str) -> tuple:
+# Обработчик ввода места рождения
+@router.message(OnboardingStates.waiting_for_birth_location)
+async def process_birth_location(message: Message, state: FSMContext):
     """
-    Получает координаты и высоту над уровнем моря для указанного города.
+    Обрабатывает ввод места рождения пользователя.
     
     Args:
-        city (str): Название города
-        
-    Returns:
-        tuple: Кортеж (широта, долгота, высота) или None, если координаты не найдены
+        message (Message): Сообщение Telegram
+        state (FSMContext): Контекст состояния FSM
     """
-    # Устанавливаем User-Agent для запросов к API
-    headers = {"User-Agent": "ASTROBOT/1.0 (contact@example.com)"}
+    # Получаем место рождения и геокодируем его
+    location_text = message.text.strip()
     
-    async with aiohttp.ClientSession(headers=headers) as session:
-        # Получаем координаты через OpenStreetMap
-        params = {"q": city, "format": "json", "limit": 1}
-        async with session.get("https://nominatim.openstreetmap.org/search", params=params) as resp:
-            data = await resp.json()
-            if not data:
-                return None
-            lat = float(data[0]["lat"])
-            lon = float(data[0]["lon"])
+    # Сообщаем пользователю, что идет обработка
+    await message.answer("Определяю координаты места рождения...")
+    
+    try:
+        # Геокодируем местоположение
+        latitude, longitude, altitude = await geocode_location(location_text)
         
-        # Получаем высоту над уровнем моря через Open Elevation API
-        params = {"locations": f"{lat},{lon}"}
-        async with session.get("https://api.open-elevation.com/api/v1/lookup", params=params) as resp:
-            if resp.status != 200:
-                alt = 0
-            else:
-                try:
-                    elev_data = await resp.json()
-                    if "results" in elev_data and elev_data["results"]:
-                        alt = elev_data["results"][0].get("elevation", 0)
-                    else:
-                        alt = 0
-                except Exception:
-                    alt = 0
-    
-    return lat, lon, alt
+        # Сохраняем координаты в данных состояния
+        await state.update_data(
+            birth_location=location_text,
+            latitude=latitude,
+            longitude=longitude,
+            altitude=altitude
+        )
+        
+        # Получаем все данные из состояния
+        data = await state.get_data()
+        
+        # Обновляем профиль пользователя в базе данных
+        update_user_profile(
+            message.from_user.id,
+            data.get('full_name'),
+            data.get('birth_date'),
+            data.get('birth_time'),
+            latitude,
+            longitude,
+            altitude
+        )
+        
+        # Завершаем состояние
+        await state.clear()
+        
+        # Отправляем финальное сообщение
+        await message.answer(
+            "🎉 Отлично! Ваши данные сохранены.\n\n"
+            f"Имя: {data.get('full_name')}\n"
+            f"Дата рождения: {data.get('birth_date')}\n"
+            f"Время рождения: {data.get('birth_time')}\n"
+            f"Место рождения: {location_text}\n"
+            f"Координаты: {latitude}, {longitude}\n"
+            f"Высота над уровнем моря: {altitude} м\n\n"
+            "Теперь вы можете использовать все функции бота!",
+            reply_markup=main_menu_kb
+        )
+    except Exception as e:
+        print(f"Ошибка при обработке местоположения: {str(e)}")
+        await message.answer(
+            "Произошла ошибка при определении координат. "
+            "Пожалуйста, попробуйте ввести более точное название города или другой город."
+        )

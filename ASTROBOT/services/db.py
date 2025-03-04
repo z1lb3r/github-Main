@@ -13,6 +13,7 @@ def init_db():
     Создает таблицу пользователей, если она еще не существует.
     Добавляет поле balance, если оно отсутствует.
     """
+    print(f"Инициализация базы данных: {SQLITE_DB_PATH}")
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Создаем основную таблицу пользователей
@@ -31,6 +32,7 @@ def init_db():
                     balance REAL DEFAULT 0.0  -- Баланс пользователя в USD
                 )
             ''')
+            print("Таблица users создана или уже существует")
             
             # Проверяем, есть ли столбец balance, и добавляем его, если отсутствует
             cursor = conn.cursor()
@@ -55,6 +57,23 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             ''')
+            print("Таблица transactions создана или уже существует")
+            
+            # Создаем таблицу для хранения реферальных связей
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS referrals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    referrer_id INTEGER,
+                    status TEXT DEFAULT 'pending',  -- 'pending', 'active', 'paid'
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    activated_at DATETIME,
+                    reward_amount REAL,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id),
+                    FOREIGN KEY (referrer_id) REFERENCES users (user_id)
+                )
+            ''')
+            print("Таблица referrals создана или уже существует")
             
             # Проверяем наличие новых столбцов в таблице transactions
             cursor.execute("PRAGMA table_info(transactions)")
@@ -76,14 +95,20 @@ def add_user_if_not_exists(user_id: int, username: str):
         user_id (int): ID пользователя в Telegram
         username (str): Имя пользователя в Telegram
     """
+    print(f"Проверяем наличие пользователя {user_id} ({username}) в БД")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             row = conn.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row is None:
+                print(f"Пользователь {user_id} не найден, добавляем в БД")
                 conn.execute(
                     "INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)",
                     (user_id, username, 0.0)
                 )
+                print(f"Пользователь {user_id} добавлен в БД")
+            else:
+                print(f"Пользователь {user_id} уже существует в БД")
 
 def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_time: str, latitude: float, longitude: float, altitude: float):
     """
@@ -98,8 +123,23 @@ def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_tim
         longitude (float): Долгота места рождения
         altitude (float): Высота места рождения
     """
+    print(f"Обновляем профиль пользователя {user_id}:")
+    print(f"Имя: {full_name}, Дата: {birth_date}, Время: {birth_time}, Координаты: {latitude}, {longitude}, {altitude}")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
+            # Сначала проверим, существует ли пользователь
+            check = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            if not check:
+                print(f"ОШИБКА: Пользователь {user_id} не найден в БД для обновления профиля")
+                # Создадим пользователя, если он не существует
+                conn.execute(
+                    "INSERT INTO users (user_id, username) VALUES (?, ?)",
+                    (user_id, f"user_{user_id}")
+                )
+                print(f"Пользователь {user_id} был автоматически создан")
+                
+            # Обновляем профиль
             conn.execute(
                 """UPDATE users 
                    SET full_name = ?, birth_date = ?, birth_time = ?,
@@ -107,6 +147,11 @@ def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_tim
                    WHERE user_id = ?""",
                 (full_name, birth_date, birth_time, latitude, longitude, altitude, user_id)
             )
+            print(f"Профиль пользователя {user_id} обновлен в БД")
+            
+            # Проверяем, что данные действительно обновились
+            row = conn.execute("SELECT full_name FROM users WHERE user_id = ?", (user_id,)).fetchone()
+            print(f"Проверка обновления: full_name = {row[0] if row else 'Нет данных'}")
 
 def get_user_profile(user_id: int) -> dict:
     """
@@ -118,23 +163,45 @@ def get_user_profile(user_id: int) -> dict:
     Returns:
         dict: Словарь с данными пользователя или пустой словарь, если профиль не заполнен
     """
+    print(f"Запрашиваем профиль для user_id={user_id}")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
-            row = conn.execute(
-                """SELECT full_name, birth_date, birth_time, birth_latitude, birth_longitude, birth_altitude, balance 
-                   FROM users WHERE user_id = ?""",
-                (user_id,)
-            ).fetchone()
-            if row and all(row[:6]):  # Проверяем, что все основные поля заполнены
-                return {
+            # Проверяем, существует ли пользователь
+            exists_query = "SELECT 1 FROM users WHERE user_id = ?"
+            user_exists = conn.execute(exists_query, (user_id,)).fetchone()
+            print(f"Пользователь существует в БД: {user_exists is not None}")
+            
+            if not user_exists:
+                print(f"Пользователь {user_id} не найден в БД")
+                return {}
+            
+            # Получаем данные пользователя
+            query = """SELECT full_name, birth_date, birth_time, birth_latitude, birth_longitude, birth_altitude, balance 
+                       FROM users WHERE user_id = ?"""
+            row = conn.execute(query, (user_id,)).fetchone()
+            print(f"Получены данные пользователя: {row}")
+            
+            # Если запись существует, возвращаем словарь
+            if row:
+                # Проверяем основной индикатор заполненности профиля - имя
+                if not row[0]:
+                    print(f"Имя пользователя {user_id} не заполнено, считаем профиль пустым")
+                    return {}
+                    
+                result = {
                     "full_name": row[0],
-                    "birth_date": row[1],
-                    "birth_time": row[2],
-                    "latitude": row[3],
-                    "longitude": row[4],
-                    "altitude": row[5],
+                    "birth_date": row[1] or "",
+                    "birth_time": row[2] or "",
+                    "latitude": row[3] if row[3] is not None else 0.0,
+                    "longitude": row[4] if row[4] is not None else 0.0,
+                    "altitude": row[5] if row[5] is not None else 0.0,
                     "balance": row[6] if row[6] is not None else 0.0
                 }
+                print(f"Возвращаем результат: {result}")
+                return result
+            
+            print("Строка не найдена, возвращаем пустой словарь")
             return {}
 
 def get_user_balance(user_id: int) -> float:
@@ -151,7 +218,10 @@ def get_user_balance(user_id: int) -> float:
         with conn:
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
-                return float(row[0]) if row[0] is not None else 0.0
+                balance = float(row[0]) if row[0] is not None else 0.0
+                print(f"Баланс пользователя {user_id}: ${balance:.2f}")
+                return balance
+            print(f"Пользователь {user_id} не найден, возвращаем баланс 0.0")
             return 0.0
 
 def add_to_balance(user_id: int, amount: float, description: str = "Пополнение баланса", original_currency: str = "USD", original_amount: float = None):
@@ -168,6 +238,8 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
     Returns:
         float: Новый баланс пользователя
     """
+    print(f"Пополнение баланса пользователя {user_id} на ${amount:.2f} ({description})")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Если не указана оригинальная сумма, используем сумму в USD
@@ -189,7 +261,10 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
             # Получаем обновленный баланс
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
-                return float(row[0])
+                new_balance = float(row[0])
+                print(f"Новый баланс пользователя {user_id}: ${new_balance:.2f}")
+                return new_balance
+            print(f"ОШИБКА: Пользователь {user_id} не найден после пополнения баланса")
             return 0.0
 
 def subtract_from_balance(user_id: int, amount: float, description: str = "Списание за использование бота") -> bool:
@@ -204,11 +279,20 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
     Returns:
         bool: True, если списание прошло успешно, False, если недостаточно средств
     """
+    print(f"Списание с баланса пользователя {user_id}: ${amount:.6f} ({description})")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Проверяем, достаточно ли средств
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
-            if not row or float(row[0]) < amount:
+            if not row:
+                print(f"ОШИБКА: Пользователь {user_id} не найден при попытке списания")
+                return False
+                
+            current_balance = float(row[0]) if row[0] is not None else 0.0
+            
+            if current_balance < amount:
+                print(f"Недостаточно средств: баланс ${current_balance:.6f}, требуется ${amount:.6f}")
                 return False
             
             # Списываем средства
@@ -223,6 +307,10 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
                 (user_id, -amount, "charge", description, "USD", -amount)
             )
             
+            # Получаем обновленный баланс для проверки
+            new_balance = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
+            print(f"Списание успешно. Новый баланс: ${new_balance:.6f}")
+            
             return True
 
 def get_transaction_history(user_id: int, limit: int = 10) -> list:
@@ -236,6 +324,8 @@ def get_transaction_history(user_id: int, limit: int = 10) -> list:
     Returns:
         list: Список транзакций
     """
+    print(f"Запрос истории транзакций пользователя {user_id} (лимит: {limit})")
+    
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row  # Для доступа к строкам по имени столбца
         with conn:
@@ -248,7 +338,9 @@ def get_transaction_history(user_id: int, limit: int = 10) -> list:
                 (user_id, limit)
             ).fetchall()
             
-            return [dict(row) for row in rows]
+            result = [dict(row) for row in rows]
+            print(f"Получено {len(result)} транзакций")
+            return result
 
 def user_has_active_subscription(user_id: int) -> bool:
     """
@@ -262,13 +354,16 @@ def user_has_active_subscription(user_id: int) -> bool:
         bool: True, если у пользователя есть средства, иначе False
     """
     balance = get_user_balance(user_id)
-    return balance > 0
+    has_subscription = balance > 0
+    print(f"Проверка подписки пользователя {user_id}: {has_subscription} (баланс: ${balance:.2f})")
+    return has_subscription
 
 def activate_subscription(user_id: int):
     """
     Устаревший метод для обратной совместимости.
     В новой модели используйте add_to_balance.
     """
+    print(f"УСТАРЕВШИЙ МЕТОД: activate_subscription вызван для пользователя {user_id}")
     # Ничего не делаем, оставляем для обратной совместимости
     pass
 
@@ -277,9 +372,160 @@ def deactivate_subscription(user_id: int):
     Устаревший метод для обратной совместимости.
     В новой модели это обнуление баланса пользователя.
     """
+    print(f"Обнуление баланса пользователя {user_id}")
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
                 "UPDATE users SET balance = 0 WHERE user_id = ?",
                 (user_id,)
             )
+            print(f"Баланс пользователя {user_id} обнулен")
+
+def add_referral(user_id: int, referrer_id: int):
+    """
+    Регистрирует реферальную связь между пользователями.
+    
+    Args:
+        user_id (int): ID пользователя, который был приглашен
+        referrer_id (int): ID пользователя, который пригласил
+    """
+    print(f"Регистрация реферальной связи: пользователь {user_id} приглашен пользователем {referrer_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            # Проверяем, не был ли уже зарегистрирован этот реферал
+            row = conn.execute(
+                "SELECT id FROM referrals WHERE user_id = ?",
+                (user_id,)
+            ).fetchone()
+            
+            if row is None:
+                # Регистрируем новую реферальную связь
+                conn.execute(
+                    "INSERT INTO referrals (user_id, referrer_id) VALUES (?, ?)",
+                    (user_id, referrer_id)
+                )
+                print(f"Зарегистрирована новая реферальная связь")
+            else:
+                print(f"Реферальная связь для пользователя {user_id} уже существует")
+
+def activate_referral(user_id: int, amount: float):
+    """
+    Активирует реферальную связь и начисляет вознаграждение реферреру.
+    Вызывается при первом пополнении баланса пользователем.
+    
+    Args:
+        user_id (int): ID пользователя, который пополнил баланс
+        amount (float): Сумма пополнения в USD
+    """
+    from config import REFERRAL_REWARD_USD
+    
+    print(f"Активация реферальной связи для пользователя {user_id} (пополнение: ${amount:.2f})")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            # Проверяем, есть ли реферальная связь и не была ли она уже активирована
+            row = conn.execute(
+                "SELECT id, referrer_id, status FROM referrals WHERE user_id = ? AND status = 'pending'",
+                (user_id,)
+            ).fetchone()
+            
+            if row is None:
+                print(f"Нет ожидающей активации реферальной связи для пользователя {user_id}")
+                return  # Нет реферальной связи или она уже активирована
+            
+            ref_id, referrer_id, status = row
+            print(f"Найдена реферальная связь: ID={ref_id}, реферер={referrer_id}, статус={status}")
+            
+            # Используем фиксированную сумму вознаграждения из конфига
+            reward = REFERRAL_REWARD_USD
+            print(f"Начисляем вознаграждение в размере ${reward:.2f}")
+            
+            # Обновляем статус реферальной связи
+            conn.execute(
+                """UPDATE referrals 
+                   SET status = 'active', 
+                       activated_at = CURRENT_TIMESTAMP,
+                       reward_amount = ?
+                   WHERE id = ?""",
+                (reward, ref_id)
+            )
+            
+            # Начисляем вознаграждение реферреру
+            conn.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id = ?",
+                (reward, referrer_id)
+            )
+            
+            # Записываем транзакцию
+            conn.execute(
+                """INSERT INTO transactions 
+                   (user_id, amount, type, description, original_currency, original_amount) 
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    referrer_id,
+                    reward,
+                    "deposit",
+                    f"Реферальное вознаграждение за пользователя {user_id}",
+                    "USD",
+                    reward
+                )
+            )
+            
+            print(f"Вознаграждение успешно начислено пользователю {referrer_id}")
+
+def get_referrals(user_id: int) -> list:
+    """
+    Получает список рефералов пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        list: Список словарей с информацией о рефералах
+    """
+    print(f"Запрос списка рефералов пользователя {user_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            rows = conn.execute(
+                """SELECT r.id, r.user_id, r.status, r.created_at, r.activated_at, r.reward_amount,
+                          u.full_name
+                   FROM referrals r
+                   LEFT JOIN users u ON r.user_id = u.user_id
+                   WHERE r.referrer_id = ?
+                   ORDER BY r.created_at DESC""",
+                (user_id,)
+            ).fetchall()
+            
+            result = [dict(row) for row in rows]
+            print(f"Получено {len(result)} рефералов")
+            return result
+
+def get_total_referral_rewards(user_id: int) -> float:
+    """
+    Получает общую сумму реферальных вознаграждений пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        float: Общая сумма вознаграждений
+    """
+    print(f"Запрос общей суммы реферальных вознаграждений пользователя {user_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            row = conn.execute(
+                "SELECT SUM(reward_amount) FROM referrals WHERE referrer_id = ? AND status = 'active'",
+                (user_id,)
+            ).fetchone()
+            
+            if row and row[0]:
+                total = float(row[0])
+                print(f"Общая сумма вознаграждений: ${total:.2f}")
+                return total
+            
+            print("Нет активных реферальных вознаграждений")
+            return 0.0

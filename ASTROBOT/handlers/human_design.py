@@ -40,6 +40,9 @@ async def handle_human_design(message: Message, state: FSMContext):
     user_id = message.from_user.id
     balance = get_user_balance(user_id)
     
+    # Добавляем отладочную информацию
+    print(f"Проверка баланса для анализа HD: user_id={user_id}, баланс=${balance}, требуется=${hd_cost}")
+    
     if balance < hd_cost:
         # Если баланс недостаточен, предлагаем пополнить
         builder = InlineKeyboardBuilder()
@@ -60,7 +63,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     profile = get_user_profile(user_id)
     if not profile:
         await message.answer(
-            "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить данные' или введите /start."
+            "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
         )
         return
 
@@ -141,5 +144,6 @@ async def handle_human_design(message: Message, state: FSMContext):
     # Сохраняем начальную историю диалога и данные API в состоянии
     await state.update_data(
         conversation_history=f"Бот: {expert_comment}\n",
-        holos_response=holos_data_combined
+        holos_response=holos_data_combined,
+        in_consultation=True  # Добавляем флаг активного режима консультации
     )

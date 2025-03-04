@@ -161,13 +161,14 @@ async def _make_request(endpoint: str, params: Dict) -> Dict:
     print(f"Параметры: {json.dumps(params, indent=2)}")
     
     try:
-        # Согласно документации, используем Content-Type: application/json
+        # Используем правильный формат для JSON-запросов
         headers = {
             'Content-Type': 'application/json'
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, data=params) as response:
+            # Сериализуем params в JSON с помощью json=params вместо data=params
+            async with session.post(url, headers=headers, json=params) as response:
                 print(f"Статус ответа: {response.status}")
                 response_data = await response.json()
                 print(f"Ответ: {json.dumps(response_data, indent=2)}")

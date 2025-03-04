@@ -47,4 +47,7 @@ OUTPUT_TOKEN_MULTIPLIER = 1.0  # Множитель для исходящих т
 HD_ANALYSIS_TOKENS = 6667  # Эквивалент токенов для анализа Human Design (~$0.1)
 
 # Настройки бота
-BOT_USERNAME = "cz_astrobot"  # Username вашего бота без символа @
+BOT_USERNAME = "cz_astrobot_bot"  # Username вашего бота без символа @
+
+# Настройки реферальной системы
+REFERRAL_REWARD_USD = 3.00  # Вознаграждение $3 за каждого приведенного пользователя
