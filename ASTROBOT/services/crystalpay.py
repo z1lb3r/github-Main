@@ -15,18 +15,16 @@ from config import (
     CRYSTALPAY_API_URL,
     CRYSTALPAY_CASHIER_URL,
     CRYSTALPAY_WALLET_ID,
-    DEPOSIT_AMOUNT_RUB,
-    DEPOSIT_AMOUNT_USD,
-    DISPLAY_CURRENCY,
     BOT_USERNAME
 )
 
-async def create_payment(user_id: int, email: str = None) -> Tuple[bool, Dict]:
+async def create_payment(user_id: int, amount: int = None, email: str = None) -> Tuple[bool, Dict]:
     """
-    Создает платеж в CrystalPay для оплаты подписки.
+    Создает платеж в CrystalPay для пополнения баланса.
     
     Args:
         user_id (int): ID пользователя в Telegram
+        amount (int, optional): Сумма пополнения в рублях
         email (str, optional): Email пользователя, если доступен
         
     Returns:
@@ -34,6 +32,10 @@ async def create_payment(user_id: int, email: str = None) -> Tuple[bool, Dict]:
             - успех (bool): True, если платеж успешно создан, иначе False
             - результат (Dict): Результат запроса (данные платежа или ошибка)
     """
+    # Проверяем, что сумма пополнения указана и находится в допустимых пределах
+    if amount is None or amount < 100 or amount > 10000000:
+        return False, {"error": "Недопустимая сумма пополнения (должна быть от 100 до 10 000 000 руб.)"}
+    
     # Генерируем уникальный ID для платежа
     order_id = f"sub_{user_id}_{int(time.time())}"
     
@@ -41,12 +43,12 @@ async def create_payment(user_id: int, email: str = None) -> Tuple[bool, Dict]:
     params = {
         "auth_login": CRYSTALPAY_WALLET_ID,
         "auth_secret": CRYSTALPAY_SECRET_KEY,
-        "amount": DEPOSIT_AMOUNT_RUB,
+        "amount": amount,  # Используем переданную сумму в рублях
         "type": "purchase",  # Тип операции: purchase или topup
         "lifetime": 1440,  # Время жизни счета в минутах (24 часа)
-        "description": f"Пополнение баланса бота @{BOT_USERNAME} на ${DEPOSIT_AMOUNT_USD:.2f}",
+        "description": f"Пополнение баланса бота @{BOT_USERNAME} на {amount} баллов",
         "redirect_url": f"https://t.me/{BOT_USERNAME}",  # URL для перенаправления после оплаты
-        "extra": order_id  # Сохраняем order_id как дополнительную информацию
+        "extra": f"{order_id}:{amount}"  # Сохраняем order_id и сумму как дополнительную информацию
     }
     
     if email:

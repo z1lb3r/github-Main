@@ -15,8 +15,6 @@ from services.rag_utils import answer_with_rag, count_tokens
 from config import (
     TOKEN_PRICE, 
     MIN_REQUIRED_BALANCE, 
-    DEPOSIT_AMOUNT_USD, 
-    DISPLAY_CURRENCY,
     INPUT_TOKEN_MULTIPLIER,
     OUTPUT_TOKEN_MULTIPLIER
 )
@@ -70,13 +68,13 @@ async def conversation_handler(message: Message, state: FSMContext):
         # Если баланс недостаточен, предлагаем пополнить
         builder = InlineKeyboardBuilder()
         builder.button(
-            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            text=f"Пополнить баланс",
             callback_data="deposit_balance"
         )
         await message.answer(
             f"⚠️ Недостаточно средств на балансе!\n\n"
-            f"Ваш текущий баланс: ${balance:.2f}\n"
-            f"Минимальный баланс для консультации: ${MIN_REQUIRED_BALANCE:.2f}\n\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n"
+            f"Минимальный баланс для консультации: {MIN_REQUIRED_BALANCE:.0f} баллов\n\n"
             "Пожалуйста, пополните баланс для продолжения консультации.",
             reply_markup=builder.as_markup()
         )
@@ -98,14 +96,14 @@ async def conversation_handler(message: Message, state: FSMContext):
     if balance < estimated_cost:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            text=f"Пополнить баланс",
             callback_data="deposit_balance"
         )
         await message.answer(
             f"⚠️ Недостаточно средств для обработки этого сообщения!\n\n"
-            f"Требуется: ${estimated_cost:.6f}\n"
-            f"Ваш баланс: ${balance:.6f}\n\n"
-            f"Стоимость обработки: {input_tokens} токенов × ${TOKEN_PRICE:.6f} × {INPUT_TOKEN_MULTIPLIER} = ${estimated_cost:.6f}\n\n"
+            f"Требуется: {estimated_cost:.2f} баллов\n"
+            f"Ваш баланс: {balance:.2f} баллов\n\n"
+            f"Стоимость обработки: {input_tokens} токенов × {TOKEN_PRICE:.3f} × {INPUT_TOKEN_MULTIPLIER} = {estimated_cost:.2f} баллов\n\n"
             "Пожалуйста, пополните баланс или отправьте более короткое сообщение.",
             reply_markup=builder.as_markup()
         )
@@ -126,7 +124,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Уведомляем пользователя о списании средств
     await message.answer(
-        f"💸 С вашего баланса списано ${estimated_cost:.6f} за обработку запроса.\n"
+        f"💸 С вашего баланса списано {estimated_cost:.2f} баллов за обработку запроса.\n"
         f"Обрабатываем ваш запрос..."
     )
     
@@ -150,13 +148,13 @@ async def conversation_handler(message: Message, state: FSMContext):
     if remaining_balance < response_cost:
         builder = InlineKeyboardBuilder()
         builder.button(
-            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            text=f"Пополнить баланс",
             callback_data="deposit_balance"
         )
         await message.answer(
             f"⚠️ Недостаточно средств для получения полного ответа!\n\n"
-            f"Требуется: ${response_cost:.6f}\n"
-            f"Ваш баланс: ${remaining_balance:.6f}\n\n"
+            f"Требуется: {response_cost:.2f} баллов\n"
+            f"Ваш баланс: {remaining_balance:.2f} баллов\n\n"
             "Пожалуйста, пополните баланс для получения полного ответа.",
             reply_markup=builder.as_markup()
         )
@@ -186,7 +184,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     await message.answer(
         f"{answer}\n\n"
-        f"💸 Стоимость ответа: ${response_cost:.6f} ({output_tokens} токенов)\n"
-        f"💰 Ваш текущий баланс: ${new_balance:.6f}",
+        f"💸 Стоимость ответа: {response_cost:.2f} баллов ({output_tokens} токенов)\n"
+        f"💰 Ваш текущий баланс: {new_balance:.0f} баллов",
         reply_markup=get_end_consultation_keyboard()
     )   

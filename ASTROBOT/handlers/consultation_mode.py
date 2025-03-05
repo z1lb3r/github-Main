@@ -103,14 +103,14 @@ async def handle_consultation_start(callback: CallbackQuery, state: FSMContext):
     balance = get_user_balance(user_id)
     
     # Отладочный вывод
-    print(f"Запуск консультации: user_id={user_id}, баланс=${balance}, минимум=${MIN_REQUIRED_BALANCE}")
+    print(f"Запуск консультации: user_id={user_id}, баланс={balance:.0f} баллов, минимум={MIN_REQUIRED_BALANCE:.0f} баллов")
     
     # Check if user has enough balance
     if balance < MIN_REQUIRED_BALANCE:
         await callback.message.answer(
             f"⚠️ Недостаточно средств для консультации.\n\n"
-            f"Ваш текущий баланс: ${balance:.2f}\n"
-            f"Минимальный баланс: ${MIN_REQUIRED_BALANCE:.2f}\n\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n"
+            f"Минимальный баланс: {MIN_REQUIRED_BALANCE:.0f} баллов\n\n"
             f"Пожалуйста, пополните баланс.",
             reply_markup=main_menu_kb
         )
@@ -146,7 +146,7 @@ async def handle_consultation_end(callback: CallbackQuery, state: FSMContext):
     
     # Get current balance
     balance = get_user_balance(user_id)
-    print(f"Завершение консультации: user_id={user_id}, текущий баланс=${balance}")
+    print(f"Завершение консультации: user_id={user_id}, текущий баланс={balance:.0f} баллов")
     
     # Calculate minutes and seconds
     minutes = int(duration // 60)
@@ -155,7 +155,7 @@ async def handle_consultation_end(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         f"✅ Консультация завершена!\n\n"
         f"Продолжительность: {minutes} мин. {seconds} сек.\n"
-        f"Текущий баланс: ${balance:.2f}\n\n"
+        f"Текущий баланс: {balance:.0f} баллов\n\n"
         f"Спасибо за использование нашего сервиса. Вы можете начать новую консультацию в любое время.",
         reply_markup=get_updated_main_menu_keyboard()  # Используем обновленную клавиатуру
     )

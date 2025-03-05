@@ -3,21 +3,19 @@
 """
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from .keyboards import (
     main_menu_kb, 
-    get_balance_keyboard, 
     get_back_to_menu_keyboard,
-    get_withdrawal_confirmation_keyboard,
-    get_referral_keyboard,
     get_consultation_confirmation_keyboard
 )
 from services.db import get_user_balance, get_transaction_history, get_user_profile, subtract_from_balance
-from config import DEPOSIT_AMOUNT_USD, MIN_REQUIRED_BALANCE
+from config import MIN_REQUIRED_BALANCE
 from handlers.change_data import get_updated_main_menu_keyboard
 from handlers.consultation_mode import (
     start_consultation_mode, 
@@ -27,11 +25,6 @@ from handlers.consultation_mode import (
 from handlers.referral import show_referral_program_enhanced, show_ref_stats_enhanced
 
 router = Router()
-
-# Состояния для вывода средств
-class WithdrawalStates(StatesGroup):
-    waiting_for_amount = State()
-    waiting_for_wallet = State()
 
 # Обработчик команды /menu
 @router.message(Command("menu"))
@@ -74,13 +67,13 @@ async def start_consultation(message: Message, state: FSMContext):
     
     # Проверяем баланс пользователя
     balance = get_user_balance(user_id)
-    print(f"Проверка баланса для консультации: user_id={user_id}, баланс=${balance}, минимум=${MIN_REQUIRED_BALANCE}")
+    print(f"Проверка баланса для консультации: user_id={user_id}, баланс={balance:.0f} баллов, минимум={MIN_REQUIRED_BALANCE:.0f} баллов")
     
     if balance < MIN_REQUIRED_BALANCE:
         await message.answer(
             f"⚠️ Недостаточно средств для начала консультации.\n\n"
-            f"Ваш текущий баланс: ${balance:.2f}\n"
-            f"Минимальный баланс для консультации: ${MIN_REQUIRED_BALANCE:.2f}\n\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n"
+            f"Минимальный баланс для консультации: {MIN_REQUIRED_BALANCE:.0f} баллов\n\n"
             f"Пожалуйста, пополните баланс в разделе 'Баланс'.",
             reply_markup=get_updated_main_menu_keyboard()
         )
@@ -91,135 +84,9 @@ async def start_consultation(message: Message, state: FSMContext):
         "🔮 Вы готовы начать консультацию по Human Design?\n\n"
         "Консультация включает анализ вашей энергетической карты на основе "
         "даты, времени и места рождения, а также ответы на ваши вопросы.\n\n"
-        f"Стоимость анализа: ${MIN_REQUIRED_BALANCE:.2f}\n"
-        f"Ваш текущий баланс: ${balance:.2f}",
+        f"Стоимость анализа: {MIN_REQUIRED_BALANCE:.0f} баллов\n"
+        f"Ваш текущий баланс: {balance:.0f} баллов",
         reply_markup=get_consultation_confirmation_keyboard()
-    )
-
-# Обработчик подтверждения начала консультации
-@router.callback_query(F.data == "start_consultation")
-async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
-    """
-    Обработчик подтверждения начала консультации.
-    Перенаправляет на обработчик Human Design и включает режим консультации.
-    """
-    await callback.answer()
-    
-    # Включаем режим консультации
-    user_id = callback.from_user.id
-    await start_consultation_mode(user_id, state)
-    
-    # Получаем данные пользователя и настройки анализа HD
-    from handlers.human_design import HD_ANALYSIS_TOKENS, TOKEN_PRICE, HOLOS_DREAM_URL
-    from services.db import get_user_balance, subtract_from_balance, get_user_profile
-    from services.holos_api import send_request_to_holos
-    from services.rag_utils import answer_with_rag
-    
-    # Рассчитываем стоимость анализа Human Design
-    hd_cost = HD_ANALYSIS_TOKENS * TOKEN_PRICE
-    
-    # Проверяем баланс пользователя еще раз
-    balance = get_user_balance(user_id)
-    print(f"Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс=${balance}, требуется=${hd_cost}")
-    
-    if balance < hd_cost:
-        await callback.message.answer(
-            f"⚠️ Недостаточно средств на балансе для анализа Human Design!\n\n"
-            f"Стоимость анализа: ${hd_cost:.6f}\n"
-            f"Ваш текущий баланс: ${balance:.6f}\n\n"
-            "Пожалуйста, пополните баланс для проведения анализа."
-        )
-        return
-
-    # Получаем профиль пользователя
-    profile = get_user_profile(user_id)
-    if not profile:
-        await callback.message.answer(
-            "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
-        )
-        return
-
-    # Списываем средства за анализ Human Design
-    success = subtract_from_balance(
-        user_id, 
-        hd_cost, 
-        f"Анализ Human Design ({HD_ANALYSIS_TOKENS} токенов)"
-    )
-    
-    if not success:
-        await callback.message.answer(
-            "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
-        )
-        return
-    
-    # Уведомляем пользователя о списании средств
-    await callback.message.answer(
-        f"💸 С вашего баланса списано ${hd_cost:.6f} за анализ Human Design.\n"
-        f"Выполняем анализ, пожалуйста, подождите..."
-    )
-
-    # Формируем строку даты и времени рождения
-    date_str = f"{profile['birth_date']} {profile['birth_time']}"  # формат: ГГГГ-ММ-ДД ЧЧ:ММ
-    latitude = profile["latitude"]
-    longitude = profile["longitude"]
-    altitude = profile["altitude"]
-
-    # Отправляем запрос к API Holos
-    response_data = await send_request_to_holos(
-        holos_url=HOLOS_DREAM_URL,
-        date_str=date_str,
-        latitude=latitude,
-        longitude=longitude,
-        altitude=altitude
-    )
-    
-    # Собираем данные пользователя в виде строки
-    user_profile_info = (
-        f"Дата рождения: {profile['birth_date']}\n"
-        f"Время рождения: {profile['birth_time']}\n"
-        f"Место рождения (координаты): {latitude}, {longitude}, {altitude}\n"
-        f"Данные API: {response_data}"
-    )
-    
-    holos_data_combined = {
-        "user_profile": user_profile_info,
-        "api_response": response_data
-    }
-    
-    # Генерируем ответ с помощью RAG
-    expert_comment = answer_with_rag(
-        "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: "
-        "отношения/любовь, финансы, здоровье, источники счастья.",
-        holos_data_combined,
-        mode="4_aspects",
-        conversation_history="",
-        max_tokens=1200
-    )
-    
-    # Отправляем ответ
-    if len(expert_comment) > 4096:
-        chunk_size = 4096
-        for i in range(0, len(expert_comment), chunk_size):
-            await callback.message.answer(expert_comment[i:i+chunk_size])
-    else:
-        await callback.message.answer(expert_comment)
-    
-    # Получаем обновленный баланс и сохраняем данные в состоянии
-    new_balance = get_user_balance(user_id)
-    await state.update_data(
-        conversation_history=f"Бот: {expert_comment}\n",
-        holos_response=holos_data_combined,
-        in_consultation=True
-    )
-    
-    # Сообщаем о возможности задавать вопросы и показываем кнопку завершения консультации
-    await callback.message.answer(
-        f"Анализ Human Design завершен!\n\n"
-        f"💰 Ваш текущий баланс: ${new_balance:.6f}\n\n"
-        "Теперь вы можете задавать вопросы по теме. "
-        "Каждый вопрос и ответ будут тарифицироваться согласно количеству используемых токенов. "
-        "Когда закончите, нажмите 'Завершить консультацию'.", 
-        reply_markup=get_end_consultation_keyboard()
     )
 
 # Обработчик кнопки "Баланс"
@@ -230,17 +97,31 @@ async def show_balance(message: Message):
     Показывает текущий баланс и опции для работы с ним.
     """
     balance = get_user_balance(message.from_user.id)
-    print(f"Показ баланса: user_id={message.from_user.id}, баланс=${balance}")
+    print(f"Показ баланса: user_id={message.from_user.id}, баланс={balance:.0f} баллов")
+    
+    # Заменяем get_balance_keyboard на новую функцию без кнопки вывода средств
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="💵 Пополнить баланс",
+        callback_data="deposit_balance"
+    )
+    builder.button(
+        text="📊 История транзакций",
+        callback_data="transaction_history"
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔙 Вернуться в главное меню", callback_data="back_to_main_menu")
+    )
     
     await message.answer(
-        f"💰 Ваш текущий баланс: ${balance:.2f}\n\n"
+        f"💰 Ваш текущий баланс: {balance:.0f} баллов\n\n"
         "Выберите действие:",
-        reply_markup=get_balance_keyboard()
+        reply_markup=builder.as_markup()
     )
 
 # Обработчик кнопки "Пополнить"
 @router.callback_query(F.data == "deposit_balance")
-async def deposit_balance(callback: CallbackQuery):
+async def deposit_balance(callback: CallbackQuery, state: FSMContext):
     """
     Обработчик кнопки "Пополнить".
     Запускает процесс пополнения через CrystalPay.
@@ -248,152 +129,8 @@ async def deposit_balance(callback: CallbackQuery):
     await callback.answer()
     
     # Используем функциональность уже имеющегося обработчика пополнения
-    from handlers.payment import process_deposit
-    await process_deposit(callback)
-
-# Обработчик кнопки "Вывести"
-@router.callback_query(F.data == "withdraw_balance")
-async def withdraw_balance(callback: CallbackQuery, state: FSMContext):
-    """
-    Обработчик кнопки "Вывести".
-    Начинает процесс вывода средств.
-    """
-    await callback.answer()
-    
-    balance = get_user_balance(callback.from_user.id)
-    
-    if balance <= 0:
-        await callback.message.answer(
-            "⚠️ На вашем балансе нет средств для вывода.",
-            reply_markup=get_back_to_menu_keyboard()
-        )
-        return
-    
-    await callback.message.answer(
-        f"💰 Ваш текущий баланс: ${balance:.2f}\n\n"
-        "Введите сумму для вывода (в USD):"
-    )
-    await state.set_state(WithdrawalStates.waiting_for_amount)
-
-# Обработчик ввода суммы для вывода
-@router.message(WithdrawalStates.waiting_for_amount)
-async def process_withdrawal_amount(message: Message, state: FSMContext):
-    """
-    Обработчик ввода суммы для вывода.
-    Проверяет введенную сумму и запрашивает кошелек.
-    """
-    try:
-        amount = float(message.text.replace(',', '.').strip())
-    except ValueError:
-        await message.answer(
-            "⚠️ Пожалуйста, введите корректную сумму (число).\n"
-            "Например: 10.5"
-        )
-        return
-    
-    balance = get_user_balance(message.from_user.id)
-    
-    if amount <= 0:
-        await message.answer("⚠️ Сумма должна быть больше нуля.")
-        return
-    
-    if amount > balance:
-        await message.answer(
-            f"⚠️ Недостаточно средств.\n"
-            f"Ваш баланс: ${balance:.2f}, "
-            f"запрошенная сумма: ${amount:.2f}"
-        )
-        return
-    
-    await state.update_data(withdrawal_amount=amount)
-    
-    await message.answer(
-        f"Вы запросили вывод ${amount:.2f}\n\n"
-        "Пожалуйста, введите адрес кошелька или номер карты для вывода:"
-    )
-    await state.set_state(WithdrawalStates.waiting_for_wallet)
-
-# Обработчик ввода кошелька для вывода
-@router.message(WithdrawalStates.waiting_for_wallet)
-async def process_withdrawal_wallet(message: Message, state: FSMContext):
-    """
-    Обработчик ввода кошелька для вывода.
-    Сохраняет данные и запрашивает подтверждение.
-    """
-    wallet = message.text.strip()
-    
-    if len(wallet) < 5:
-        await message.answer(
-            "⚠️ Пожалуйста, введите корректный адрес кошелька или номер карты."
-        )
-        return
-    
-    data = await state.get_data()
-    amount = data.get('withdrawal_amount')
-    
-    await state.update_data(withdrawal_wallet=wallet)
-    
-    await message.answer(
-        f"📝 Проверьте данные для вывода:\n\n"
-        f"Сумма: ${amount:.2f}\n"
-        f"Реквизиты: {wallet}\n\n"
-        "Подтвердите операцию:",
-        reply_markup=get_withdrawal_confirmation_keyboard(amount)
-    )
-
-# Обработчик подтверждения вывода
-@router.callback_query(F.data.startswith("confirm_withdrawal:"))
-async def confirm_withdrawal(callback: CallbackQuery, state: FSMContext):
-    """
-    Обработчик подтверждения вывода.
-    Завершает процесс вывода средств.
-    """
-    await callback.answer()
-    
-    # Здесь должна быть логика для обработки вывода средств
-    # В данном примере просто сообщаем о запросе на вывод
-    
-    data = await state.get_data()
-    wallet = data.get('withdrawal_wallet')
-    amount_str = callback.data.split(':', 1)[1]
-    amount = float(amount_str)
-    
-    await callback.message.answer(
-        f"✅ Запрос на вывод ${amount:.2f} на реквизиты {wallet} принят!\n\n"
-        "Обработка вывода занимает до 24 часов. "
-        "Вы получите уведомление после обработки запроса.",
-        reply_markup=get_updated_main_menu_keyboard()
-    )
-    
-    # Очищаем состояние
-    await state.clear()
-
-# Обработчик отмены вывода
-@router.callback_query(F.data == "cancel_withdrawal")
-async def cancel_withdrawal(callback: CallbackQuery, state: FSMContext):
-    """
-    Обработчик отмены вывода.
-    Отменяет процесс вывода средств.
-    """
-    await callback.answer()
-    await callback.message.answer(
-        "❌ Операция вывода отменена.",
-        reply_markup=get_updated_main_menu_keyboard()
-    )
-    await state.clear()
-
-# Обработчик кнопки "История операций"
-@router.callback_query(F.data == "transaction_history")
-async def show_transaction_history(callback: CallbackQuery):
-    """
-    Обработчик кнопки "История операций".
-    Показывает историю транзакций пользователя.
-    """
-    await callback.answer()
-    
-    # Используем функциональность уже имеющегося обработчика истории транзакций
-    from handlers.payment import show_transaction_history
-    await show_transaction_history(callback)
+    from handlers.payment import process_deposit_start
+    await process_deposit_start(callback, state)
 
 # Обработчик кнопки "Пользовательское соглашение"
 @router.message(F.text == "📋 Пользовательское соглашение")
@@ -421,7 +158,7 @@ async def show_terms(message: Message):
 
 3.2. Оплата услуг Сервиса осуществляется через платежную систему CrystalPay по модели "оплата за использование" (pay-per-use).
 
-3.3. Стоимость услуг рассчитывается исходя из количества обработанных токенов и устанавливается в долларах США.
+3.3. Стоимость услуг рассчитывается исходя из количества обработанных токенов и устанавливается в баллах (1 балл = 1 рубль).
 
 ## 4. Права и обязанности Сторон
 
@@ -572,4 +309,130 @@ async def back_to_main_menu(callback: CallbackQuery):
     await callback.message.answer(
         "Вы вернулись в главное меню.",
         reply_markup=get_updated_main_menu_keyboard()
+    )
+
+# Обработчик подтверждения начала консультации
+@router.callback_query(F.data == "start_consultation")
+async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
+    """
+    Обработчик подтверждения начала консультации.
+    Перенаправляет на обработчик Human Design и включает режим консультации.
+    """
+    await callback.answer()
+    
+    # Включаем режим консультации
+    user_id = callback.from_user.id
+    await start_consultation_mode(user_id, state)
+    
+    # Получаем данные пользователя и настройки анализа HD
+    from handlers.human_design import HD_ANALYSIS_TOKENS, TOKEN_PRICE, HOLOS_DREAM_URL
+    from services.db import get_user_balance, subtract_from_balance, get_user_profile
+    from services.holos_api import send_request_to_holos
+    from services.rag_utils import answer_with_rag
+    
+    # Рассчитываем стоимость анализа Human Design
+    hd_cost = HD_ANALYSIS_TOKENS * TOKEN_PRICE
+    
+    # Проверяем баланс пользователя еще раз
+    balance = get_user_balance(user_id)
+    print(f"Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс={balance:.0f} баллов, требуется={hd_cost:.0f} баллов")
+    
+    if balance < hd_cost:
+        await callback.message.answer(
+            f"⚠️ Недостаточно средств на балансе для анализа Human Design!\n\n"
+            f"Стоимость анализа: {hd_cost:.0f} баллов\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n\n"
+            "Пожалуйста, пополните баланс для проведения анализа."
+        )
+        return
+
+    # Получаем профиль пользователя
+    profile = get_user_profile(user_id)
+    if not profile:
+        await callback.message.answer(
+            "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
+        )
+        return
+
+    # Списываем средства за анализ Human Design
+    success = subtract_from_balance(
+        user_id, 
+        hd_cost, 
+        f"Анализ Human Design ({HD_ANALYSIS_TOKENS} токенов)"
+    )
+    
+    if not success:
+        await callback.message.answer(
+            "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
+        )
+        return
+    
+    # Уведомляем пользователя о списании средств
+    await callback.message.answer(
+        f"💸 С вашего баланса списано {hd_cost:.0f} баллов за анализ Human Design.\n"
+        f"Выполняем анализ, пожалуйста, подождите..."
+    )
+
+    # Формируем строку даты и времени рождения
+    date_str = f"{profile['birth_date']} {profile['birth_time']}"  # формат: ГГГГ-ММ-ДД ЧЧ:ММ
+    latitude = profile["latitude"]
+    longitude = profile["longitude"]
+    altitude = profile["altitude"]
+
+    # Отправляем запрос к API Holos
+    response_data = await send_request_to_holos(
+        holos_url=HOLOS_DREAM_URL,
+        date_str=date_str,
+        latitude=latitude,
+        longitude=longitude,
+        altitude=altitude
+    )
+    
+    # Собираем данные пользователя в виде строки
+    user_profile_info = (
+        f"Дата рождения: {profile['birth_date']}\n"
+        f"Время рождения: {profile['birth_time']}\n"
+        f"Место рождения (координаты): {latitude}, {longitude}, {altitude}\n"
+        f"Данные API: {response_data}"
+    )
+    
+    holos_data_combined = {
+        "user_profile": user_profile_info,
+        "api_response": response_data
+    }
+    
+    # Генерируем ответ с помощью RAG
+    expert_comment = answer_with_rag(
+        "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: "
+        "отношения/любовь, финансы, здоровье, источники счастья.",
+        holos_data_combined,
+        mode="4_aspects",
+        conversation_history="",
+        max_tokens=1200
+    )
+    
+    # Отправляем ответ
+    if len(expert_comment) > 4096:
+        chunk_size = 4096
+        for i in range(0, len(expert_comment), chunk_size):
+            await callback.message.answer(expert_comment[i:i+chunk_size])
+    else:
+        await callback.message.answer(expert_comment)
+    
+    # Получаем обновленный баланс и сохраняем данные в состоянии
+    new_balance = get_user_balance(user_id)
+    await state.update_data(
+        conversation_history=f"Бот: {expert_comment}\n",
+        holos_response=holos_data_combined,
+        in_consultation=True
+    )
+    
+    # Сообщаем о возможности задавать вопросы и показываем кнопку завершения консультации
+    await callback.message.answer(
+        f"Анализ Human Design завершен!\n\n"
+        f"💰 Ваш текущий баланс: {new_balance:.0f} баллов\n\n"
+        "Теперь вы можете задавать вопросы по теме. "
+        "Каждый вопрос и ответ будут тарифицироваться согласно количеству используемых токенов. "
+        "Когда закончите, нажмите 'Завершить консультацию'.", 
+        reply_markup=get_end_consultation_keyboard()
     )

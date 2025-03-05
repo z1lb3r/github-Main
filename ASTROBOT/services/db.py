@@ -206,7 +206,7 @@ def get_user_profile(user_id: int) -> dict:
 
 def get_user_balance(user_id: int) -> float:
     """
-    Получает текущий баланс пользователя в USD.
+    Получает текущий баланс пользователя в баллах (рублях).
     
     Args:
         user_id (int): ID пользователя
@@ -219,18 +219,18 @@ def get_user_balance(user_id: int) -> float:
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
                 balance = float(row[0]) if row[0] is not None else 0.0
-                print(f"Баланс пользователя {user_id}: ${balance:.2f}")
+                print(f"Баланс пользователя {user_id}: {balance:.0f} баллов")
                 return balance
             print(f"Пользователь {user_id} не найден, возвращаем баланс 0.0")
             return 0.0
 
-def add_to_balance(user_id: int, amount: float, description: str = "Пополнение баланса", original_currency: str = "USD", original_amount: float = None):
+def add_to_balance(user_id: int, amount: float, description: str = "Пополнение баланса", original_currency: str = "RUB", original_amount: float = None):
     """
-    Добавляет средства на баланс пользователя в USD.
+    Добавляет средства на баланс пользователя в баллах (рублях).
     
     Args:
         user_id (int): ID пользователя
-        amount (float): Сумма для добавления в USD
+        amount (float): Сумма для добавления в баллах
         description (str, optional): Описание транзакции
         original_currency (str, optional): Исходная валюта платежа
         original_amount (float, optional): Сумма в исходной валюте
@@ -238,11 +238,11 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
     Returns:
         float: Новый баланс пользователя
     """
-    print(f"Пополнение баланса пользователя {user_id} на ${amount:.2f} ({description})")
+    print(f"Пополнение баланса пользователя {user_id} на {amount:.0f} баллов ({description})")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
-            # Если не указана оригинальная сумма, используем сумму в USD
+            # Если не указана оригинальная сумма, используем сумму в баллах
             if original_amount is None:
                 original_amount = amount
                 
@@ -262,24 +262,24 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
                 new_balance = float(row[0])
-                print(f"Новый баланс пользователя {user_id}: ${new_balance:.2f}")
+                print(f"Новый баланс пользователя {user_id}: {new_balance:.0f} баллов")
                 return new_balance
             print(f"ОШИБКА: Пользователь {user_id} не найден после пополнения баланса")
             return 0.0
 
 def subtract_from_balance(user_id: int, amount: float, description: str = "Списание за использование бота") -> bool:
     """
-    Списывает средства с баланса пользователя в USD, если их достаточно.
+    Списывает средства с баланса пользователя в баллах, если их достаточно.
     
     Args:
         user_id (int): ID пользователя
-        amount (float): Сумма для списания в USD
+        amount (float): Сумма для списания в баллах
         description (str, optional): Описание транзакции
     
     Returns:
         bool: True, если списание прошло успешно, False, если недостаточно средств
     """
-    print(f"Списание с баланса пользователя {user_id}: ${amount:.6f} ({description})")
+    print(f"Списание с баланса пользователя {user_id}: {amount:.2f} баллов ({description})")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -292,7 +292,7 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
             current_balance = float(row[0]) if row[0] is not None else 0.0
             
             if current_balance < amount:
-                print(f"Недостаточно средств: баланс ${current_balance:.6f}, требуется ${amount:.6f}")
+                print(f"Недостаточно средств: баланс {current_balance:.2f} баллов, требуется {amount:.2f} баллов")
                 return False
             
             # Списываем средства
@@ -304,14 +304,15 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
             # Записываем транзакцию (отрицательная сумма)
             conn.execute(
                 "INSERT INTO transactions (user_id, amount, type, description, original_currency, original_amount) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, -amount, "charge", description, "USD", -amount)
+                (user_id, -amount, "charge", description, "RUB", -amount)
             )
             
             # Получаем обновленный баланс для проверки
             new_balance = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
-            print(f"Списание успешно. Новый баланс: ${new_balance:.6f}")
+            print(f"Списание успешно. Новый баланс: {new_balance:.2f} баллов")
             
             return True
+        
 
 def get_transaction_history(user_id: int, limit: int = 10) -> list:
     """
@@ -353,9 +354,10 @@ def user_has_active_subscription(user_id: int) -> bool:
     Returns:
         bool: True, если у пользователя есть средства, иначе False
     """
+    from config import MIN_REQUIRED_BALANCE
     balance = get_user_balance(user_id)
-    has_subscription = balance > 0
-    print(f"Проверка подписки пользователя {user_id}: {has_subscription} (баланс: ${balance:.2f})")
+    has_subscription = balance >= MIN_REQUIRED_BALANCE
+    print(f"Проверка подписки пользователя {user_id}: {has_subscription} (баланс: {balance:.0f} баллов, мин. баланс: {MIN_REQUIRED_BALANCE:.0f} баллов)")
     return has_subscription
 
 def activate_subscription(user_id: int):
@@ -416,11 +418,11 @@ def activate_referral(user_id: int, amount: float):
     
     Args:
         user_id (int): ID пользователя, который пополнил баланс
-        amount (float): Сумма пополнения в USD
+        amount (float): Сумма пополнения в баллах
     """
     from config import REFERRAL_REWARD_USD
     
-    print(f"Активация реферальной связи для пользователя {user_id} (пополнение: ${amount:.2f})")
+    print(f"Активация реферальной связи для пользователя {user_id} (пополнение: {amount:.0f} баллов)")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -438,8 +440,8 @@ def activate_referral(user_id: int, amount: float):
             print(f"Найдена реферальная связь: ID={ref_id}, реферер={referrer_id}, статус={status}")
             
             # Используем фиксированную сумму вознаграждения из конфига
-            reward = REFERRAL_REWARD_USD
-            print(f"Начисляем вознаграждение в размере ${reward:.2f}")
+            reward = REFERRAL_REWARD_USD  # Теперь это баллы (рубли)
+            print(f"Начисляем вознаграждение в размере {reward:.0f} баллов")
             
             # Обновляем статус реферальной связи
             conn.execute(
@@ -467,12 +469,13 @@ def activate_referral(user_id: int, amount: float):
                     reward,
                     "deposit",
                     f"Реферальное вознаграждение за пользователя {user_id}",
-                    "USD",
+                    "RUB",
                     reward
                 )
             )
             
             print(f"Вознаграждение успешно начислено пользователю {referrer_id}")
+
 
 def get_referrals(user_id: int) -> list:
     """
@@ -502,6 +505,7 @@ def get_referrals(user_id: int) -> list:
             result = [dict(row) for row in rows]
             print(f"Получено {len(result)} рефералов")
             return result
+        
 
 def get_total_referral_rewards(user_id: int) -> float:
     """
@@ -524,7 +528,7 @@ def get_total_referral_rewards(user_id: int) -> float:
             
             if row and row[0]:
                 total = float(row[0])
-                print(f"Общая сумма вознаграждений: ${total:.2f}")
+                print(f"Общая сумма вознаграждений: {total:.0f} баллов")
                 return total
             
             print("Нет активных реферальных вознаграждений")

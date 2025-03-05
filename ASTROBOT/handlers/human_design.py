@@ -15,8 +15,7 @@ from services.rag_utils import answer_with_rag, count_tokens
 from config import (
     HOLOS_DREAM_URL, 
     TOKEN_PRICE, 
-    DEPOSIT_AMOUNT_USD, 
-    DISPLAY_CURRENCY,
+    MIN_REQUIRED_BALANCE,
     HD_ANALYSIS_TOKENS
 )
 
@@ -41,19 +40,19 @@ async def handle_human_design(message: Message, state: FSMContext):
     balance = get_user_balance(user_id)
     
     # Добавляем отладочную информацию
-    print(f"Проверка баланса для анализа HD: user_id={user_id}, баланс=${balance}, требуется=${hd_cost}")
+    print(f"Проверка баланса для анализа HD: user_id={user_id}, баланс={balance:.0f} баллов, требуется={hd_cost:.0f} баллов")
     
     if balance < hd_cost:
         # Если баланс недостаточен, предлагаем пополнить
         builder = InlineKeyboardBuilder()
         builder.button(
-            text=f"Пополнить баланс (${DEPOSIT_AMOUNT_USD:.2f})",
+            text=f"Пополнить баланс",
             callback_data="deposit_balance"
         )
         await message.answer(
             f"⚠️ Недостаточно средств на балансе для анализа Human Design!\n\n"
-            f"Стоимость анализа: ${hd_cost:.6f}\n"
-            f"Ваш текущий баланс: ${balance:.6f}\n\n"
+            f"Стоимость анализа: {hd_cost:.0f} баллов\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n\n"
             "Пожалуйста, пополните баланс для проведения анализа.",
             reply_markup=builder.as_markup()
         )
@@ -82,7 +81,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     
     # Уведомляем пользователя о списании средств
     await message.answer(
-        f"💸 С вашего баланса списано ${hd_cost:.6f} за анализ Human Design.\n"
+        f"💸 С вашего баланса списано {hd_cost:.0f} баллов за анализ Human Design.\n"
         f"Выполняем анализ, пожалуйста, подождите..."
     )
 
@@ -136,7 +135,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     new_balance = get_user_balance(user_id)
     await message.answer(
         f"Анализ Human Design завершен!\n\n"
-        f"💰 Ваш текущий баланс: ${new_balance:.6f}\n\n"
+        f"💰 Ваш текущий баланс: {new_balance:.0f} баллов\n\n"
         "Теперь вы можете задавать вопросы по теме. "
         "Каждый вопрос и ответ будут тарифицироваться согласно количеству используемых токенов."
     )
