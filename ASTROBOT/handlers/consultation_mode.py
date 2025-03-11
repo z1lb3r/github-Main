@@ -6,12 +6,13 @@ and only charge the balance during consultations.
 
 import time
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from config import MIN_REQUIRED_BALANCE
-from services.db import get_user_balance
+from config import MIN_REQUIRED_BALANCE, AUDIO_CONVERSION_COST, MAX_AUDIO_TEXT_LENGTH
+from services.db import get_user_balance, subtract_from_balance
+from services.speech_service import text_to_speech, synthesize_long_text
 
 router = Router()
 
@@ -76,15 +77,19 @@ async def is_in_consultation(state: FSMContext) -> bool:
 # Function to generate end consultation keyboard
 def get_end_consultation_keyboard():
     """
-    Creates a keyboard with an 'End Consultation' button.
+    Creates a keyboard with 'End Consultation' and 'Convert to Audio' buttons.
     
     Returns:
-        InlineKeyboardMarkup: Keyboard with end consultation button
+        InlineKeyboardMarkup: Keyboard with consultation buttons
     """
     builder = InlineKeyboardBuilder()
     builder.button(
         text="⛔ Завершить консультацию",
         callback_data="end_consultation"
+    )
+    builder.button(
+        text="🔊 Хочу в виде аудио сообщения!",
+        callback_data="convert_to_audio"
     )
     return builder.as_markup()
 
@@ -159,6 +164,122 @@ async def handle_consultation_end(callback: CallbackQuery, state: FSMContext):
         f"Спасибо за использование нашего сервиса. Вы можете начать новую консультацию в любое время.",
         reply_markup=get_updated_main_menu_keyboard()  # Используем обновленную клавиатуру
     )
+
+# Handler for converting the last bot response to audio
+@router.callback_query(F.data == "convert_to_audio")
+async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
+    """
+    Handler for converting the last bot response to audio.
+    
+    Args:
+        callback (CallbackQuery): Callback query
+        state (FSMContext): FSM context
+    """
+    await callback.answer()
+    user_id = callback.from_user.id
+    
+    # Проверяем, находится ли пользователь в режиме консультации
+    in_consultation = await is_in_consultation(state)
+    if not in_consultation:
+        await callback.message.answer(
+            "Вы не находитесь в режиме консультации. "
+            "Для начала консультации выберите соответствующий пункт в меню."
+        )
+        return
+    
+    # Получаем историю диалога из состояния
+    data = await state.get_data()
+    conversation_history = data.get("conversation_history", "")
+    
+    # Извлекаем последний ответ бота из истории
+    bot_responses = [resp.strip() for resp in conversation_history.split("Бот:")[1:]]
+    
+    if not bot_responses:
+        await callback.message.answer(
+            "Не найдено ответов бота для конвертации в аудио. "
+            "Задайте вопрос, чтобы получить ответ."
+        )
+        return
+    
+    # Берем последний ответ бота
+    last_response = bot_responses[-1].strip()
+    
+    # Удаляем информацию о стоимости и балансе, если она есть
+    if "💸 Стоимость ответа:" in last_response:
+        last_response = last_response.split("💸 Стоимость ответа:")[0].strip()
+    
+    # Ограничиваем длину текста для конвертации
+    if len(last_response) > MAX_AUDIO_TEXT_LENGTH:
+        last_response = last_response[:MAX_AUDIO_TEXT_LENGTH] + "... (текст сокращен для аудио-сообщения)"
+    
+    # Проверяем баланс пользователя
+    balance = get_user_balance(user_id)
+    
+    if balance < AUDIO_CONVERSION_COST:
+        await callback.message.answer(
+            f"⚠️ Недостаточно средств для конвертации в аудио!\n\n"
+            f"Стоимость конвертации: {AUDIO_CONVERSION_COST} баллов\n"
+            f"Ваш текущий баланс: {balance:.0f} баллов\n\n"
+            "Пожалуйста, пополните баланс."
+        )
+        return
+    
+    # Уведомляем пользователя о начале конвертации
+    status_message = await callback.message.answer(
+        f"🔄 Конвертирую текст в аудио-сообщение...\n"
+        f"С вашего баланса будет списано {AUDIO_CONVERSION_COST} баллов."
+    )
+    
+    try:
+        # Списываем средства за конвертацию
+        subtract_success = subtract_from_balance(
+            user_id, 
+            AUDIO_CONVERSION_COST, 
+            "Конвертация текста в аудио"
+        )
+        
+        if not subtract_success:
+            await status_message.edit_text(
+                "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
+            )
+            return
+        
+        # Конвертируем текст в аудио
+        if len(last_response) > 4500:  # Если текст длинный
+            audio_data = await synthesize_long_text(last_response)
+        else:
+            audio_data = await text_to_speech(last_response)
+        
+        # Перемотаем BytesIO в начало, чтобы правильно прочитать данные
+        audio_data.seek(0)
+        audio_bytes = audio_data.read()
+        
+        # Создаем InputFile из байтов
+        voice_file = BufferedInputFile(audio_bytes, filename="audio_message.ogg")
+        
+        # Отправляем аудио-сообщение
+        await callback.message.answer_voice(
+            voice=voice_file,
+            caption="🔊 Аудио-версия ответа бота"
+        )
+        
+        # Удаляем сообщение о статусе
+        await status_message.delete()
+        
+        # Показываем обновленный баланс
+        new_balance = get_user_balance(user_id)
+        await callback.message.answer(
+            f"✅ Аудио-сообщение успешно создано!\n"
+            f"💰 Ваш текущий баланс: {new_balance:.0f} баллов",
+            reply_markup=get_end_consultation_keyboard()
+        )
+        
+    except Exception as e:
+        print(f"Ошибка при конвертации в аудио: {str(e)}")
+        await status_message.edit_text(
+            f"⚠️ Произошла ошибка при конвертации текста в аудио: {str(e)}\n"
+            "Пожалуйста, попробуйте позже или с другим текстом."
+        )
 
 # Register callback handlers
 @router.callback_query(F.data == "start_consultation")

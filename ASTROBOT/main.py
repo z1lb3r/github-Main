@@ -42,16 +42,22 @@ def main():
     dp.include_router(command_handlers_router)    # Обработчики команд
     dp.include_router(onboarding_router)          # Обработчики онбординга
     dp.include_router(main_menu_router)           # Обработчики главного меню
-    dp.include_router(change_data_router)         # Обработчики изменения данных (новый)
-    dp.include_router(referral_router)            # Обработчики реферальной системы (новый)
-    dp.include_router(consultation_mode_router)   # Обработчики режима консультации (новый)
+    dp.include_router(change_data_router)         # Обработчики изменения данных
+    dp.include_router(referral_router)            # Обработчики реферальной системы
+    dp.include_router(consultation_mode_router)   # Обработчики режима консультации
     dp.include_router(section_choice_router)      # Обработчики выбора разделов
     dp.include_router(human_design_router)        # Обработчики для Human Design
     dp.include_router(payment_router)             # Обработчики для платежей
     dp.include_router(conversation_router)        # Общий обработчик сообщений
 
+    # Настраиваем параметры для отправки больших медиафайлов
+    bot_settings = {
+        "parse_mode": None,  # Используем None вместо HTML для избежания ошибок форматирования
+        "disable_web_page_preview": True
+    }
+
     # Запускаем поллинг сообщений
-    dp.run_polling(bot)
+    dp.run_polling(bot, **bot_settings)
 
 if __name__ == "__main__":
     main()

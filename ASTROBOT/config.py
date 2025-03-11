@@ -52,3 +52,19 @@ BOT_USERNAME = "cz_astrobot_bot"  # Username вашего бота без сим
 
 # Настройки реферальной системы
 REFERRAL_REWARD_USD = 300  # Вознаграждение 300 баллов за каждого приведенного пользователя
+
+# Настройки Yandex SpeechKit
+YANDEX_SPEECHKIT_FOLDER_ID = "b1gv3g9g2aplg7cuvthf"  # ID каталога
+YANDEX_SPEECHKIT_API_KEY = "AQVNyJrzHeGpK4VFG2Nl4bHbR0paVBwZvJdZD9XZ"  # Новый API-ключ
+YANDEX_SPEECHKIT_API_KEY_ID = "aje8jbphrod95e2ka6r3"  # ID API-ключа
+
+# Настройки голоса и параметров синтеза
+YANDEX_SPEECHKIT_VOICE = "alena"  # Доступные голоса: alena, filipp, ermil, jane, oksana, omazh, zahar
+YANDEX_SPEECHKIT_EMOTION = "neutral"  # Доступные эмоции: neutral, good, evil
+YANDEX_SPEECHKIT_SPEED = 1.0  # Скорость речи (от 0.1 до 3.0)
+
+# Стоимость конвертации в аудио (в баллах)
+AUDIO_CONVERSION_COST = 20
+
+# Ограничения для аудио-сообщений
+MAX_AUDIO_TEXT_LENGTH = 10000  # Максимальная длина текста для конвертации в аудио
