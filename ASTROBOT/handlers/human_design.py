@@ -115,14 +115,13 @@ async def handle_human_design(message: Message, state: FSMContext):
     
     # Генерируем ответ с помощью RAG
     expert_comment = answer_with_rag(
-        "Проанализируй данные и дай описание и практические рекомендации по 4 аспектам: "
-        "отношения/любовь, финансы, здоровье, источники счастья.",
+        "Определи мой тип личности с точки зрения human design и познакомься со мной. Следуй инструкциям из системного промпта.",
         holos_data_combined,
-        mode="4_aspects",
+        mode="free",
         conversation_history="",
-        max_tokens=1200
+        max_tokens=3000
     )
-    
+
     # Отправляем ответ
     if len(expert_comment) > 4096:
         chunk_size = 4096
