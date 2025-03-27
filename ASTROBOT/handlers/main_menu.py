@@ -407,7 +407,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
         holos_data_combined,
         mode="free",
         conversation_history="",
-        max_tokens=3000
+        max_tokens=2500
     )
     
     # Отправляем ответ

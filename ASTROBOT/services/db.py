@@ -75,6 +75,20 @@ def init_db():
             ''')
             print("Таблица referrals создана или уже существует")
             
+            # Создаем таблицу для хранения сообщений
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    sender TEXT,     -- 'user' или 'bot' или 'summary'
+                    content TEXT,
+                    is_summary BOOLEAN DEFAULT 0,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id)
+                )
+            ''')
+            print("Таблица messages создана или уже существует")
+            
             # Проверяем наличие новых столбцов в таблице transactions
             cursor.execute("PRAGMA table_info(transactions)")
             columns = [column[1] for column in cursor.fetchall()]
@@ -533,3 +547,108 @@ def get_total_referral_rewards(user_id: int) -> float:
             
             print("Нет активных реферальных вознаграждений")
             return 0.0
+
+# Новые функции для работы с историей сообщений
+
+def save_message(user_id: int, sender: str, content: str, is_summary: bool = False):
+    """
+    Сохраняет сообщение в БД.
+    
+    Args:
+        user_id (int): ID пользователя
+        sender (str): Отправитель ('user' или 'bot')
+        content (str): Содержание сообщения
+        is_summary (bool): Является ли сообщение кратким содержанием
+    """
+    print(f"Сохранение сообщения для пользователя {user_id}: sender={sender}, is_summary={is_summary}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            conn.execute(
+                "INSERT INTO messages (user_id, sender, content, is_summary) VALUES (?, ?, ?, ?)",
+                (user_id, sender, content, is_summary)
+            )
+            print(f"Сообщение сохранено в БД")
+
+def get_last_messages(user_id: int, limit: int = 20):
+    """
+    Получает последние сообщения пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        limit (int): Количество сообщений
+        
+    Returns:
+        list: Список сообщений
+    """
+    print(f"Запрос последних {limit} сообщений пользователя {user_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            rows = conn.execute(
+                """SELECT id, sender, content, is_summary, timestamp 
+                   FROM messages 
+                   WHERE user_id = ? 
+                   ORDER BY timestamp DESC 
+                   LIMIT ?""",
+                (user_id, limit)
+            ).fetchall()
+            
+            result = [dict(row) for row in rows]
+            result.reverse()  # Меняем порядок на хронологический (от старых к новым)
+            print(f"Получено {len(result)} сообщений")
+            return result
+
+def get_message_count(user_id: int):
+    """
+    Подсчитывает количество сообщений пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        int: Количество сообщений
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE user_id = ?",
+                (user_id,)
+            ).fetchone()
+            
+            count = row[0] if row else 0
+            print(f"Количество сообщений пользователя {user_id}: {count}")
+            return count
+
+def delete_old_messages(user_id: int, keep: int = 20):
+    """
+    Удаляет старые сообщения, оставляя указанное количество.
+    
+    Args:
+        user_id (int): ID пользователя
+        keep (int): Количество сообщений для сохранения
+    """
+    print(f"Удаление старых сообщений пользователя {user_id}, оставляем {keep} последних")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            # Получаем ID самого старого сообщения из тех, что нужно сохранить
+            row = conn.execute(
+                "SELECT id FROM messages WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?, 1",
+                (user_id, keep - 1)
+            ).fetchone()
+            
+            if not row:
+                print(f"Недостаточно сообщений для удаления ({keep - 1})")
+                return  # Недостаточно сообщений
+                
+            threshold_id = row[0]
+            
+            # Удаляем сообщения старше порога
+            deleted = conn.execute(
+                "DELETE FROM messages WHERE user_id = ? AND id < ?",
+                (user_id, threshold_id)
+            ).rowcount
+            
+            print(f"Удалено {deleted} старых сообщений")

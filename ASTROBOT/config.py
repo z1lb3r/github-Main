@@ -59,9 +59,9 @@ YANDEX_SPEECHKIT_API_KEY = "AQVNyJrzHeGpK4VFG2Nl4bHbR0paVBwZvJdZD9XZ"  # Нов�
 YANDEX_SPEECHKIT_API_KEY_ID = "aje8jbphrod95e2ka6r3"  # ID API-ключа
 
 # Настройки голоса и параметров синтеза
-YANDEX_SPEECHKIT_VOICE = "filipp"  # Доступные голоса: alena, filipp, ermil, jane, oksana, omazh, zahar
+YANDEX_SPEECHKIT_VOICE = "filipp"  # Мужской голос (вместо alena)
 YANDEX_SPEECHKIT_EMOTION = "neutral"  # Доступные эмоции: neutral, good, evil
-YANDEX_SPEECHKIT_SPEED = 0.9  # Скорость речи (от 0.1 до 3.0)
+YANDEX_SPEECHKIT_SPEED = 0.9  # Немного замедляем для более спокойного темпа (было 1.0)
 
 # Стоимость конвертации в аудио (в баллах)
 AUDIO_CONVERSION_COST = 20

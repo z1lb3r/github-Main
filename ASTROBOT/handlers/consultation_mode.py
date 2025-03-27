@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import MIN_REQUIRED_BALANCE, AUDIO_CONVERSION_COST, MAX_AUDIO_TEXT_LENGTH
-from services.db import get_user_balance, subtract_from_balance
+from services.db import get_user_balance, subtract_from_balance, save_message
 from services.speech_service import text_to_speech, synthesize_long_text
 
 router = Router()
@@ -28,9 +28,6 @@ async def start_consultation_mode(user_id: int, state: FSMContext):
     # Set consultation mode flag in state
     await state.update_data(in_consultation=True)
     await state.update_data(consultation_start_time=time.time())
-    
-    # Clear previous conversation history if any
-    await state.update_data(conversation_history="")
     
     print(f"User {user_id} started consultation mode")
 
@@ -187,14 +184,14 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         )
         return
     
-    # Получаем историю диалога из состояния
-    data = await state.get_data()
-    conversation_history = data.get("conversation_history", "")
+    # Получаем последний ответ бота из базы данных
+    from services.db import get_last_messages
+    messages = get_last_messages(user_id, 5)  # Получаем 5 последних сообщений
     
-    # Извлекаем последний ответ бота из истории
-    bot_responses = [resp.strip() for resp in conversation_history.split("Бот:")[1:]]
+    # Находим последнее сообщение бота
+    bot_messages = [msg for msg in messages if msg['sender'] == 'bot' and not msg['is_summary']]
     
-    if not bot_responses:
+    if not bot_messages:
         await callback.message.answer(
             "Не найдено ответов бота для конвертации в аудио. "
             "Задайте вопрос, чтобы получить ответ."
@@ -202,7 +199,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         return
     
     # Берем последний ответ бота
-    last_response = bot_responses[-1].strip()
+    last_response = bot_messages[-1]['content']
     
     # Удаляем информацию о стоимости и балансе, если она есть
     if "💸 Стоимость ответа:" in last_response:

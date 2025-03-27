@@ -9,7 +9,12 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from services.db import get_user_balance, subtract_from_balance, get_user_profile
+from services.db import (
+    get_user_balance, 
+    subtract_from_balance, 
+    get_user_profile, 
+    save_message
+)
 from services.holos_api import send_request_to_holos
 from services.rag_utils import answer_with_rag, count_tokens
 from config import (
@@ -113,15 +118,18 @@ async def handle_human_design(message: Message, state: FSMContext):
         "api_response": response_data
     }
     
-    # Генерируем ответ с помощью RAG
+    # Генерируем ответ с помощью RAG с измененным запросом
     expert_comment = answer_with_rag(
         "Определи мой тип личности с точки зрения human design и познакомься со мной. Следуй инструкциям из системного промпта.",
         holos_data_combined,
         mode="free",
         conversation_history="",
-        max_tokens=3000
+        max_tokens=2500
     )
-
+    
+    # Сохраняем ответ бота в базу данных
+    save_message(user_id, 'bot', expert_comment)
+    
     # Отправляем ответ
     if len(expert_comment) > 4096:
         chunk_size = 4096

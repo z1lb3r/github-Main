@@ -1,7 +1,7 @@
 """
 Обработчик обычных сообщений пользователя.
 Обрабатывает все сообщения, которые не обработаны другими обработчиками.
-Реализует систему списания средств за использование бота.
+Реализует систему списания средств за использование бота и хранение истории сообщений.
 """
 
 import math
@@ -10,8 +10,15 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from services.db import get_user_balance, subtract_from_balance
-from services.rag_utils import answer_with_rag, count_tokens
+from services.db import (
+    get_user_balance, 
+    subtract_from_balance, 
+    save_message, 
+    get_last_messages, 
+    get_message_count, 
+    delete_old_messages
+)
+from services.rag_utils import answer_with_rag, count_tokens, summarize_messages
 from config import (
     TOKEN_PRICE, 
     MIN_REQUIRED_BALANCE, 
@@ -27,7 +34,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     """
     Обработчик обычных сообщений пользователя.
     Генерирует ответы с помощью RAG, отслеживает историю диалога,
-    и списывает средства за использование только в режиме консультации.
+    списывает средства за использование, и сохраняет историю сообщений с суммаризацией.
     
     Args:
         message (Message): Сообщение Telegram
@@ -43,13 +50,6 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Проверяем, находится ли пользователь в режиме консультации
     in_consultation = data.get("in_consultation", False)
-    
-    # Добавляем новое сообщение пользователя в историю независимо от режима
-    conversation_history = data.get("conversation_history", "")
-    conversation_history += f"Пользователь: {message.text}\n"
-    
-    # Обновляем историю диалога в состоянии
-    await state.update_data(conversation_history=conversation_history)
     
     # Если не в режиме консультации, просто отвечаем без списания средств
     if not in_consultation:
@@ -79,13 +79,10 @@ async def conversation_handler(message: Message, state: FSMContext):
             reply_markup=builder.as_markup()
         )
         return
+    
+    # Сохраняем сообщение пользователя в базу данных
+    save_message(user_id, 'user', message.text)
 
-    # Формируем полный prompt, включающий всю историю диалога
-    full_prompt = f"История диалога:\n{conversation_history}\n\nВопрос: {message.text}"
-    
-    # Получаем данные Holos из предыдущей сессии
-    holos_response = data.get("holos_response", {})
-    
     # Подсчитываем количество токенов во входящем сообщении
     input_tokens = count_tokens(message.text)
     
@@ -128,9 +125,24 @@ async def conversation_handler(message: Message, state: FSMContext):
         f"Обрабатываем ваш запрос..."
     )
     
+    # Получаем историю диалога из базы данных
+    messages_history = get_last_messages(user_id, 100)  # Запрашиваем до 100 сообщений
+    
+    # Формируем строку истории для промпта
+    conversation_history = ""
+    for msg in messages_history:
+        if msg['is_summary']:
+            conversation_history += f"Краткое содержание предыдущего диалога: {msg['content']}\n\n"
+        else:
+            prefix = "Пользователь: " if msg['sender'] == 'user' else "Бот: "
+            conversation_history += f"{prefix}{msg['content']}\n"
+    
+    # Получаем данные Holos из предыдущей сессии
+    holos_response = data.get("holos_response", {})
+    
     # Генерируем ответ с помощью RAG
     answer = answer_with_rag(
-        full_prompt, 
+        message.text,  # Текущий вопрос пользователя
         holos_response, 
         mode="free", 
         conversation_history=conversation_history, 
@@ -173,11 +185,25 @@ async def conversation_handler(message: Message, state: FSMContext):
         )
         return
     
-    # Добавляем ответ бота в историю
-    conversation_history += f"Бот: {answer}\n"
+    # Сохраняем ответ бота в базу данных
+    save_message(user_id, 'bot', answer)
     
-    # Сохраняем обновленную историю
-    await state.update_data(conversation_history=conversation_history)
+    # Получаем общее количество сообщений
+    msg_count = get_message_count(user_id)
+    
+    # Если сообщений больше 100, обрабатываем старые
+    if msg_count > 100:
+        # Получаем самые старые сообщения (те, которые нужно суммаризировать)
+        old_messages = get_last_messages(user_id, 100)[:-20]  # Исключаем 20 последних
+        
+        # Суммаризируем старые сообщения
+        summary = summarize_messages(old_messages)
+        
+        # Сохраняем суммаризацию как новое сообщение
+        save_message(user_id, 'summary', summary, True)
+        
+        # Удаляем старые сообщения
+        delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
     
     # Отправляем ответ пользователю с информацией о стоимости
     new_balance = get_user_balance(user_id)
@@ -187,4 +213,4 @@ async def conversation_handler(message: Message, state: FSMContext):
         f"💸 Стоимость ответа: {response_cost:.2f} баллов ({output_tokens} токенов)\n"
         f"💰 Ваш текущий баланс: {new_balance:.0f} баллов",
         reply_markup=get_end_consultation_keyboard()
-    )   
+    )
