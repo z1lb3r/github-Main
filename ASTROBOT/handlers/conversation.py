@@ -125,8 +125,25 @@ async def conversation_handler(message: Message, state: FSMContext):
         f"Обрабатываем ваш запрос..."
     )
     
+    # Получаем общее количество сообщений
+    msg_count = get_message_count(user_id)
+    print(f"[DEBUG] Общее количество сообщений пользователя {user_id}: {msg_count}")
+    
     # Получаем историю диалога из базы данных
     messages_history = get_last_messages(user_id, 100)  # Запрашиваем до 100 сообщений
+    print(f"[DEBUG] Получено {len(messages_history)} сообщений из БД")
+    
+    # Подсчитываем количество полных сообщений и суммаризаций
+    full_messages = [msg for msg in messages_history if not msg['is_summary']]
+    summary_messages = [msg for msg in messages_history if msg['is_summary']]
+    print(f"[DEBUG] Полных сообщений: {len(full_messages)}, суммаризаций: {len(summary_messages)}")
+    
+    # Выводим идентификаторы суммаризаций
+    if summary_messages:
+        print(f"[DEBUG] Суммаризации:")
+        for i, msg in enumerate(summary_messages[:3]):  # Выводим до 3 суммаризаций
+            print(f"[DEBUG]   {i+1}. ID: {msg['id']}, timestamp: {msg['timestamp']}")
+            print(f"[DEBUG]      Содержимое (первые 100 символов): {msg['content'][:100]}...")
     
     # Формируем строку истории для промпта
     conversation_history = ""
@@ -188,22 +205,22 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Сохраняем ответ бота в базу данных
     save_message(user_id, 'bot', answer)
     
-    # Получаем общее количество сообщений
-    msg_count = get_message_count(user_id)
-    
     # Если сообщений больше 100, обрабатываем старые
     if msg_count > 100:
         # Получаем самые старые сообщения (те, которые нужно суммаризировать)
         old_messages = get_last_messages(user_id, 100)[:-20]  # Исключаем 20 последних
+        print(f"[DEBUG] Суммаризируем {len(old_messages)} старых сообщений")
         
         # Суммаризируем старые сообщения
         summary = summarize_messages(old_messages)
         
         # Сохраняем суммаризацию как новое сообщение
         save_message(user_id, 'summary', summary, True)
+        print(f"[DEBUG] Создана и сохранена суммаризация: {summary[:100]}...")
         
         # Удаляем старые сообщения
-        delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
+        deleted_count = delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
+        print(f"[DEBUG] Удалено {deleted_count} старых сообщений")
     
     # Отправляем ответ пользователю с информацией о стоимости
     new_balance = get_user_balance(user_id)

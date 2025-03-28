@@ -43,6 +43,11 @@ def init_db():
                 conn.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0.0")
                 print("Добавлен столбец 'balance' в таблицу 'users'")
             
+            # Проверяем, есть ли столбец initial_analysis_completed, и добавляем его, если отсутствует
+            if 'initial_analysis_completed' not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN initial_analysis_completed BOOLEAN DEFAULT 0")
+                print("Добавлен столбец 'initial_analysis_completed' в таблицу 'users'")
+            
             # Создаем таблицу для хранения истории транзакций
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS transactions (
@@ -652,3 +657,59 @@ def delete_old_messages(user_id: int, keep: int = 20):
             ).rowcount
             
             print(f"Удалено {deleted} старых сообщений")
+
+def user_has_initial_analysis(user_id: int) -> bool:
+    """
+    Проверяет, был ли уже проведен начальный анализ Human Design для пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        bool: True, если первичный анализ уже был проведен, иначе False
+    """
+    print(f"[DEBUG] Проверка наличия первичного анализа для пользователя {user_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            row = conn.execute(
+                "SELECT initial_analysis_completed FROM users WHERE user_id = ?",
+                (user_id,)
+            ).fetchone()
+            
+            result = bool(row and row[0])
+            print(f"[DEBUG] Результат проверки для пользователя {user_id}: {result} (значение в БД: {row[0] if row else 'None'})")
+            
+            if result:
+                print(f"[DEBUG] Пользователь {user_id} уже проходил первичный анализ")
+            else:
+                print(f"[DEBUG] Пользователь {user_id} еще не проходил первичный анализ")
+            
+            return result
+
+def mark_initial_analysis_completed(user_id: int) -> None:
+    """
+    Отмечает, что первичный анализ Human Design был проведен для пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+    """
+    print(f"[DEBUG] Отмечаем первичный анализ как выполненный для пользователя {user_id}")
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            conn.execute(
+                "UPDATE users SET initial_analysis_completed = 1 WHERE user_id = ?",
+                (user_id,)
+            )
+            
+            # Проверяем, что данные действительно обновились
+            row = conn.execute(
+                "SELECT initial_analysis_completed FROM users WHERE user_id = ?", 
+                (user_id,)
+            ).fetchone()
+            
+            if row and row[0]:
+                print(f"[DEBUG] Успешно: первичный анализ отмечен как выполненный для пользователя {user_id}")
+            else:
+                print(f"[DEBUG] ОШИБКА: Не удалось обновить статус первичного анализа для пользователя {user_id}")

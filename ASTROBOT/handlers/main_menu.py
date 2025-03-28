@@ -317,6 +317,10 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     """
     Обработчик подтверждения начала консультации.
     Перенаправляет на обработчик Human Design и включает режим консультации.
+    
+    Args:
+        callback (CallbackQuery): Callback query
+        state (FSMContext): Контекст состояния для FSM
     """
     await callback.answer()
     
@@ -326,7 +330,14 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     
     # Получаем данные пользователя и настройки анализа HD
     from handlers.human_design import HD_ANALYSIS_TOKENS, TOKEN_PRICE, HOLOS_DREAM_URL
-    from services.db import get_user_balance, subtract_from_balance, get_user_profile
+    from services.db import (
+        get_user_balance, 
+        subtract_from_balance, 
+        get_user_profile, 
+        save_message,
+        user_has_initial_analysis,
+        mark_initial_analysis_completed
+    )
     from services.holos_api import send_request_to_holos
     from services.rag_utils import answer_with_rag
     
@@ -335,7 +346,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     
     # Проверяем баланс пользователя еще раз
     balance = get_user_balance(user_id)
-    print(f"Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс={balance:.0f} баллов, требуется={hd_cost:.0f} баллов")
+    print(f"[DEBUG] Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс={balance:.0f} баллов, требуется={hd_cost:.0f} баллов")
     
     if balance < hd_cost:
         await callback.message.answer(
@@ -353,7 +364,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
             "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
         )
         return
-
+    
     # Списываем средства за анализ Human Design
     success = subtract_from_balance(
         user_id, 
@@ -401,14 +412,38 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
         "api_response": response_data
     }
     
+    # Проверяем, был ли у пользователя уже проведен первичный анализ
+    is_initial_analysis = not user_has_initial_analysis(user_id)
+    print(f"[DEBUG] Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
+    
+    # Формируем запрос в зависимости от того, первый это анализ или нет
+    if is_initial_analysis:
+        # Если это первый анализ - запрашиваем полное определение типа личности
+        expert_prompt = "Определи мой тип личности с точки зрения human design и познакомься со мной. Следуй инструкциям из системного промпта. Это ПЕРВЫЙ анализ пользователя."
+        # Отмечаем, что первичный анализ выполнен
+        mark_initial_analysis_completed(user_id)
+        print(f"[DEBUG] Отмечено, что первичный анализ выполнен для пользователя {user_id}")
+    else:
+        # Если это повторный анализ - используем приветственный промпт без повторения типа
+        expert_prompt = (
+            "ВАЖНО: Это повторное обращение пользователя, тип личности уже определен ранее. "
+            "НЕ ОПРЕДЕЛЯЙ ТИП ЛИЧНОСТИ, НЕ ГОВОРИ О ГЕННЫХ КЛЮЧАХ. "
+            "Поприветствуй пользователя как старого знакомого, скажи что рад(а) снова общаться. "
+            "Предложи задать вопросы о Human Design. Не упоминай о типе личности, "
+            "мы уже обсуждали это ранее. Будь краток(ка) и дружелюбен(на)."
+        )
+    
     # Генерируем ответ с помощью RAG
     expert_comment = answer_with_rag(
-        "Определи мой тип личности с точки зрения human design и познакомься со мной. Следуй инструкциям из системного промпта.",
+        expert_prompt,
         holos_data_combined,
         mode="free",
         conversation_history="",
-        max_tokens=2500
+        max_tokens=3000
     )
+    
+    # Сохраняем ответ бота в базу данных
+    save_message(user_id, 'bot', expert_comment)
     
     # Отправляем ответ
     if len(expert_comment) > 4096:

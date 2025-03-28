@@ -11,7 +11,7 @@ from .pdf_data import get_pdf_content
 from config import OPENAI_API_KEY
 
 # Модель ChatGPT для генерации ответов
-CHAT_MODEL = "gpt-4o"
+CHAT_MODEL = "ft:gpt-4o-2024-08-06:personal::BDAbtw7T"
 # Модель для подсчета токенов
 ENCODING_MODEL = "cl100k_base"  # Энкодинг для GPT-4
 
@@ -112,15 +112,19 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     Args:
         query (str): Запрос пользователя
         holos_data (dict): Данные из API Holos
-        mode (str): Параметр больше не используется, сохранен для обратной совместимости
+        mode (str): Режим ответа ("free" - свободный ответ)
         conversation_history (str): История диалога
         max_tokens (int): Максимальное количество токенов в ответе
         
     Returns:
         str: Сгенерированный ответ
     """
-    print(f"answer_with_rag вызван с параметром mode='{mode}', но будет использован единый промпт")
-    print(f"Длина истории диалога: {len(conversation_history)} символов")
+    print(f"[DEBUG] answer_with_rag вызван с запросом: '{query[:50]}...'")
+    print(f"[DEBUG] Длина истории диалога: {len(conversation_history)} символов")
+    
+    # Проверяем, содержит ли запрос указание на повторное обращение
+    is_repeat_query = "повторное обращение" in query.lower() or "не определяй тип" in query.lower()
+    print(f"[DEBUG] Запрос определен как {'ПОВТОРНОЕ обращение' if is_repeat_query else 'НОВОЕ обращение'}")
     
     # Формируем текст с данными Holos
     holos_text = f"Данные с сайта Holos:\n{holos_data}" if holos_data else "[Нет данных]"
@@ -133,15 +137,27 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     
     # Определяем, является ли это первым сообщением
     is_first_message = "Пользователь:" not in conversation_history and "Бот:" not in conversation_history
-    first_message_instruction = "Это первое сообщение в диалоге - укажи тип личности пользователя в начале ответа." if is_first_message else "Это НЕ первое сообщение - не указывай тип личности в начале, если об этом не спрашивают напрямую."
+    
+    # Специальные инструкции в зависимости от типа запроса
+    if is_repeat_query:
+        first_message_instruction = (
+            "ВАЖНО: Это повторное обращение пользователя. НЕ ОПРЕДЕЛЯЙ и НЕ УПОМИНАЙ тип личности. "
+            "Приветствуй пользователя как старого знакомого и предложи продолжить консультацию."
+        )
+    else:
+        first_message_instruction = (
+            "Это первое сообщение в диалоге - укажи тип личности пользователя в начале ответа." 
+            if is_first_message else 
+            "Это НЕ первое сообщение - не указывай тип личности в начале, если об этом не спрашивают напрямую."
+        )
     
     # Единый системный промпт с чётким указанием учитывать историю диалога
     system_msg = (
+        f"{first_message_instruction}\n\n"
+        
         "Ты — интеллектуальный чат-бот, работающий на принципах рефлектора 5/1 из системы Дизайна Человека и генетических ключей. "
         "Используя предоставленные данные, включая сведения о дате, времени и месте рождения пользователя (из API), "
         "а также описания генных ключей, прочитанные из PDF-файлов из папки \"data_summaries\", помогай пользователю разобраться в его Human Design.\n\n"
-        
-        f"{first_message_instruction}\n\n"
         
         "ОЧЕНЬ ВАЖНО: Обязательно читай и учитывай ВСЮ историю диалога. Этот диалог является ПРОДОЛЖЕНИЕМ предыдущих сообщений. "
         "В разделе \"История диалога\" находятся все предыдущие сообщения между пользователем и тобой, и ты ДОЛЖЕН опираться на них. "
@@ -187,7 +203,10 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
 """
     
     # Выводим промпт для отладки (можно закомментировать в продакшн)
-    print("ПРОМПТ ДЛЯ CHATGPT (первые 500 символов):")
+    print("[DEBUG] СИСТЕМНЫЙ ПРОМПТ (первые 500 символов):")
+    print(system_msg[:500] + "...")
+    
+    print("[DEBUG] ПОЛЬЗОВАТЕЛЬСКИЙ ПРОМПТ (первые 500 символов):")
     print(user_prompt[:500] + "...")
     
     # Отправляем запрос к ChatGPT
@@ -201,8 +220,15 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
         temperature=0.7
     )
     
+    answer_content = response.choices[0].message.content
+    print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
+
+    # В конце функции answer_with_rag перед return:
+    answer_content = f"[Используется модель: {CHAT_MODEL}]\n\n" + answer_content
+    
     # Возвращаем сгенерированный ответ
-    return response.choices[0].message.content
+    return answer_content
+
 
 def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     """
@@ -215,7 +241,7 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     Returns:
         str: Краткое содержание сообщений
     """
-    print(f"Суммаризация {len(messages)} сообщений")
+    print(f"[DEBUG] Суммаризация {len(messages)} сообщений с моделью {CHAT_MODEL}")
     
     # Формируем диалог для суммаризации
     conversation = ""
@@ -224,6 +250,8 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
         conversation += f"{prefix}{msg['content']}\n\n"
     
     # Запрос к OpenAI для суммаризации
+    print(f"[DEBUG] Отправляем запрос на суммаризацию к модели: {CHAT_MODEL}")
+    
     response = openai.chat.completions.create(
         model=CHAT_MODEL,
         messages=[
@@ -235,5 +263,5 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     )
     
     summary = response.choices[0].message.content
-    print(f"Создана суммаризация: {summary[:100]}...")
+    print(f"[DEBUG] Создана суммаризация: {summary[:100]}...")
     return summary
