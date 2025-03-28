@@ -100,7 +100,6 @@ async def conversation_handler(message: Message, state: FSMContext):
             f"⚠️ Недостаточно средств для обработки этого сообщения!\n\n"
             f"Требуется: {estimated_cost:.2f} баллов\n"
             f"Ваш баланс: {balance:.2f} баллов\n\n"
-            f"Стоимость обработки: {input_tokens} токенов × {TOKEN_PRICE:.3f} × {INPUT_TOKEN_MULTIPLIER} = {estimated_cost:.2f} баллов\n\n"
             "Пожалуйста, пополните баланс или отправьте более короткое сообщение.",
             reply_markup=builder.as_markup()
         )
@@ -119,12 +118,6 @@ async def conversation_handler(message: Message, state: FSMContext):
         )
         return
     
-    # Уведомляем пользователя о списании средств
-    await message.answer(
-        f"💸 С вашего баланса списано {estimated_cost:.2f} баллов за обработку запроса.\n"
-        f"Обрабатываем ваш запрос..."
-    )
-    
     # Получаем общее количество сообщений
     msg_count = get_message_count(user_id)
     print(f"[DEBUG] Общее количество сообщений пользователя {user_id}: {msg_count}")
@@ -138,7 +131,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     summary_messages = [msg for msg in messages_history if msg['is_summary']]
     print(f"[DEBUG] Полных сообщений: {len(full_messages)}, суммаризаций: {len(summary_messages)}")
     
-    # Выводим идентификаторы суммаризаций
+    # Выводим идентификаторы суммаризаций для отладки
     if summary_messages:
         print(f"[DEBUG] Суммаризации:")
         for i, msg in enumerate(summary_messages[:3]):  # Выводим до 3 суммаризаций
@@ -222,12 +215,8 @@ async def conversation_handler(message: Message, state: FSMContext):
         deleted_count = delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
         print(f"[DEBUG] Удалено {deleted_count} старых сообщений")
     
-    # Отправляем ответ пользователю с информацией о стоимости
-    new_balance = get_user_balance(user_id)
-    
+    # Отправляем ответ пользователю без информации о стоимости
     await message.answer(
-        f"{answer}\n\n"
-        f"💸 Стоимость ответа: {response_cost:.2f} баллов ({output_tokens} токенов)\n"
-        f"💰 Ваш текущий баланс: {new_balance:.0f} баллов",
+        answer,
         reply_markup=get_end_consultation_keyboard()
     )

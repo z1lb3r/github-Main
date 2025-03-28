@@ -224,7 +224,7 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
 
     # В конце функции answer_with_rag перед return:
-    answer_content = f"[Используется модель: {CHAT_MODEL}]\n\n" + answer_content
+    # answer_content = f"[Используется модель: {CHAT_MODEL}]\n\n" + answer_content
     
     # Возвращаем сгенерированный ответ
     return answer_content
