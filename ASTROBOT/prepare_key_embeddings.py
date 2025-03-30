@@ -10,6 +10,8 @@ import numpy as np
 from config import KEY1_DOCX_PATH, KEY2_DOCX_PATH, OPENAI_API_KEY
 from docx_data import get_docx_content
 
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Константы
 CHUNK_SIZE = 3000  # Размер фрагмента текста для эмбеддинга
 EMBED_MODEL = "text-embedding-ada-002"  # Модель OpenAI для создания эмбеддингов
@@ -87,7 +89,8 @@ if __name__ == "__main__":
     openai.api_key = OPENAI_API_KEY
     
     # Подготовка эмбеддингов для key1.docx
-    prepare_embeddings(KEY1_DOCX_PATH, "key1.index", "key1_chunks.npy")
+    prepare_embeddings(KEY1_DOCX_PATH, os.path.join(BASE_DIR, "key1.index"), os.path.join(BASE_DIR, "key1_chunks.npy"))
+
     
     # Подготовка эмбеддингов для key2.docx
-    prepare_embeddings(KEY2_DOCX_PATH, "key2.index", "key2_chunks.npy")
+    prepare_embeddings(KEY2_DOCX_PATH, os.path.join(BASE_DIR, "key2.index"), os.path.join(BASE_DIR, "key2_chunks.npy"))

@@ -15,6 +15,8 @@ CHAT_MODEL = "ft:gpt-4o-2024-08-06:personal::BDAbtw7T"
 # Модель для подсчета токенов
 ENCODING_MODEL = "cl100k_base"  # Энкодинг для GPT-4
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Устанавливаем API ключ для OpenAI
 openai.api_key = OPENAI_API_KEY
 
@@ -88,7 +90,7 @@ def load_gene_keys_text(holos_data: dict) -> str:
     # Загружаем описания для каждого ключа
     used_files = []
     for key in keys:
-        file_path = f"data_summaries/{key}-й_ГЕННЫЙ_КЛЮЧ_summary.pdf"
+        file_path = os.path.join(BASE_DIR, "data_summaries", f"{key}-й_ГЕННЫЙ_КЛЮЧ_summary.pdf")
         used_files.append(file_path)
         
         try:

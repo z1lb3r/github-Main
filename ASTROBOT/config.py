@@ -2,6 +2,9 @@
 Конфигурационный файл с настройками бота.
 Содержит токены, ключи API, пути к файлам и URL для API запросов.
 """
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Настройки Telegram бота
 CONFIG_TELEGRAM_BOT_TOKEN = "7859921634:AAFdMXnXr1v8uwCrkWZuWrz1cgJ6QRg9UFU"
@@ -17,12 +20,12 @@ HOLOS_DREAM_URL = "https://geo.holos.house/api/body-mini"  # Альтернат�
 HOLOS_API_KEY = "CsUWmPDlHHqvqae23FxhANqkKiDVIdxd"
 
 # Пути к файлам
-SQLITE_DB_PATH = "database.db"  # Путь к файлу базы данных
+SQLITE_DB_PATH = os.path.join(BASE_DIR, "database.db")  # Путь к файлу базы данных
 PDF_FILE_PATH = "book1.pdf"     # Путь к PDF-файлу с экспертной информацией
 
 # Пути к файлам для формирования личности рефлектора у бота
-KEY1_DOCX_PATH = "datasets/key1.docx"
-KEY2_DOCX_PATH = "datasets/key2.docx"
+KEY1_DOCX_PATH = os.path.join(BASE_DIR, "datasets", "key1.docx")
+KEY2_DOCX_PATH = os.path.join(BASE_DIR, "datasets", "key2.docx")
 
 # Настройки CrystalPay API
 CRYSTALPAY_SECRET_KEY = "efec7f0c4fcf79d95c64005fd702aee542c890c7"

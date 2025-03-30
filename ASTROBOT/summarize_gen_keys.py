@@ -12,6 +12,7 @@ from fpdf import FPDF
 
 # Устанавливаем API ключ для OpenAI
 openai.api_key = OPENAI_API_KEY
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def summarize_text(text, max_tokens=300, chunk_threshold=5000):
     """
@@ -114,7 +115,7 @@ def save_summary_as_pdf(summary, output_path):
     pdf.add_page()
     
     # Добавляем шрифт с поддержкой кириллицы
-    font_path = os.path.join(os.path.dirname(__file__), "fonts", "dejavusanscondensed.ttf")
+    font_path = os.path.join(BASE_DIR, "fonts", "dejavusanscondensed.ttf")
     if not os.path.isfile(font_path):
         print(f"Шрифт не найден по пути: {font_path}")
         raise FileNotFoundError(f"Шрифт не найден по пути: {font_path}")
