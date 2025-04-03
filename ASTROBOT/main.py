@@ -2,10 +2,8 @@
 Основной файл для запуска Telegram бота.
 Инициализирует бота, регистрирует обработчики и запускает поллинг.
 """
-
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
-
 from config import CONFIG_TELEGRAM_BOT_TOKEN
 from handlers.command_handlers import router as command_handlers_router
 from handlers.onboarding import router as onboarding_router
@@ -17,8 +15,9 @@ from handlers.conversation import router as conversation_router
 from handlers.change_data import router as change_data_router
 from handlers.referral import router as referral_router
 from handlers.consultation_mode import router as consultation_mode_router
-
 from services.db import init_db
+import threading
+from db_api import app as db_api_app
 
 def main():
     """
@@ -36,6 +35,12 @@ def main():
 
     # Инициализируем базу данных
     init_db()
+    
+    # Запускаем API для базы данных в отдельном потоке
+    db_api_thread = threading.Thread(target=lambda: db_api_app.run(host='0.0.0.0', port=5001, debug=False))
+    db_api_thread.daemon = True
+    db_api_thread.start()
+    print("Database API started on port 5001")
 
     # Регистрируем маршрутизаторы (обработчики сообщений)
     # Порядок важен: более специфичные обработчики должны идти раньше общих

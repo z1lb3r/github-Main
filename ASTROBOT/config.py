@@ -71,3 +71,6 @@ AUDIO_CONVERSION_COST = 20
 
 # Ограничения для аудио-сообщений
 MAX_AUDIO_TEXT_LENGTH = 10000  # Максимальная длина текста для конвертации в аудио
+
+# API ключ для доступа к данным базы через REST API
+API_SECRET_KEY = "yNkP8Qz2XbTr5Vw7JsLm3GfHd9AeC6B1"  # Замените на сгенерированный надежный ключ
