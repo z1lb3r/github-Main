@@ -1,3 +1,7 @@
+"""
+Сервис для отправки запросов к API Holos.
+Получает астрологические данные по дате и месту рождения.
+"""
 import aiohttp
 from timezonefinder import TimezoneFinder
 import pytz
@@ -67,7 +71,7 @@ async def send_request_to_holos(holos_url, date_str, latitude, longitude, altitu
         # Преобразуем локальное время в UTC
         utc_date_str = await convert_to_utc(date_str, latitude, longitude)
         
-        # Формируем JSON для запроса в оригинальном формате
+        # Формируем JSON для запроса
         payload = {
             "key": HOLOS_API_KEY,
             "datetime": utc_date_str,  # Используем UTC время
@@ -76,7 +80,7 @@ async def send_request_to_holos(holos_url, date_str, latitude, longitude, altitu
             "altitude": altitude
         }
         
-        print(f"Отправка запроса к API Holos с датой/временем (UTC): {utc_date_str}")
+        print(f"Отправка запроса к API Holos с временем UTC: {utc_date_str}")
         
         # Отправляем POST-запрос к API
         async with aiohttp.ClientSession() as session:
