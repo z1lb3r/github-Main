@@ -15,6 +15,8 @@ from handlers.conversation import router as conversation_router
 from handlers.change_data import router as change_data_router
 from handlers.referral import router as referral_router
 from handlers.consultation_mode import router as consultation_mode_router
+from handlers.topics import router as topics_router
+from handlers.compatibility import router as compatibility_router
 from services.db import init_db
 import threading
 from db_api import app as db_api_app
@@ -46,10 +48,12 @@ def main():
     # Порядок важен: более специфичные обработчики должны идти раньше общих
     dp.include_router(command_handlers_router)    # Обработчики команд
     dp.include_router(onboarding_router)          # Обработчики онбординга
+    dp.include_router(compatibility_router)       # Обработчики проверки совместимости
     dp.include_router(main_menu_router)           # Обработчики главного меню
     dp.include_router(change_data_router)         # Обработчики изменения данных
     dp.include_router(referral_router)            # Обработчики реферальной системы
     dp.include_router(consultation_mode_router)   # Обработчики режима консультации
+    dp.include_router(topics_router)              # Обработчики тематических консультаций
     dp.include_router(section_choice_router)      # Обработчики выбора разделов
     dp.include_router(human_design_router)        # Обработчики для Human Design
     dp.include_router(payment_router)             # Обработчики для платежей

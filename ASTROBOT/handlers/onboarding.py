@@ -151,7 +151,8 @@ async def process_birth_date(message: Message, state: FSMContext):
     date_text = message.text.strip()
     
     # Очень простая проверка формата даты
-    if len(date_text.split('-')) != 3 or len(date_text) < 8:
+    date_parts = date_text.split('-')
+    if len(date_parts) != 3 or len(date_text) < 8:
         await message.answer(
             "Пожалуйста, введите дату в формате ГГГГ-ММ-ДД.\n"
             "Например: 1990-01-15"
@@ -166,9 +167,8 @@ async def process_birth_date(message: Message, state: FSMContext):
     
     # Запрашиваем время рождения
     await message.answer(
-        "Отлично! Теперь введите время вашего рождения в формате ЧЧ:ММ.\n"
-        "Например: 14:30\n\n"
-        "Если вы не знаете точное время, введите приблизительное или 12:00."
+        "Спасибо! Теперь введите время вашего рождения в формате ЧЧ:ММ.\n"
+        "Например: 14:30"
     )
 
 # Обработчик ввода времени рождения
@@ -245,6 +245,12 @@ async def process_birth_location(message: Message, state: FSMContext):
             longitude,
             altitude
         )
+        
+        # Проверяем, пришел ли пользователь по приглашению для проверки совместимости
+        if 'start_invite_code' in data:
+            invite_code = data['start_invite_code']
+            from handlers.compatibility import process_compatibility_invitation
+            await process_compatibility_invitation(message, invite_code)
         
         # Завершаем состояние
         await state.clear()

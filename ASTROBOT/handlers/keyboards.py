@@ -9,7 +9,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 main_menu_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
-            KeyboardButton(text="✨ Начать консультацию")
+            KeyboardButton(text="⭐️🔄⭐️ БЕСПЛАТНО проверить совместимость")
+        ],
+        [
+            KeyboardButton(text="✨ Начать консультацию"),
+            KeyboardButton(text="🔄 Продолжить консультацию")
         ],
         [
             KeyboardButton(text="💰 Баланс"),
@@ -20,7 +24,8 @@ main_menu_kb = ReplyKeyboardMarkup(
             KeyboardButton(text="👥 Реферальная программа")
         ],
         [
-            KeyboardButton(text="ℹ️ О нас")
+            KeyboardButton(text="ℹ️ О нас"),
+            KeyboardButton(text="📞 Контакты")
         ]
     ],
     resize_keyboard=True

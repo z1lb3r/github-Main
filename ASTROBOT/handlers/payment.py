@@ -1,8 +1,9 @@
 """
 Обработчики для работы с платежами и балансом через CrystalPay.
-Все расчеты ведутся в баллах, где 1 балл = 1 рубль.
+Все расчеты ведутся в кредитах, где 1 кредит = 1 рубль.
 """
 
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
@@ -68,8 +69,8 @@ async def cmd_balance(message: Message):
     
     # Показываем информацию о балансе и кнопку для пополнения
     await message.answer(
-        f"📊 Ваш текущий баланс: {balance:.0f} баллов\n\n"
-        f"Минимальный баланс для общения с ботом: {MIN_REQUIRED_BALANCE:.0f} баллов\n\n"
+        f"📊 Ваш текущий баланс: {balance:.0f} кредитов\n\n"
+        f"Минимальный баланс для общения с ботом: {MIN_REQUIRED_BALANCE:.0f} кредитов\n\n"
         "Для пополнения баланса нажмите кнопку ниже:",
         reply_markup=get_payment_keyboard()
     )
@@ -138,6 +139,71 @@ async def process_deposit_amount(message: Message, state: FSMContext):
     # Сохраняем сумму для создания платежа
     await process_deposit(message, amount)
 
+async def schedule_payment_check(message, invoice_id, deposit_amount, user_id):
+    """
+    Запускает периодическую проверку статуса платежа.
+    
+    Args:
+        message: Сообщение Telegram для отправки результата
+        invoice_id (str): ID счета
+        deposit_amount (int): Сумма пополнения
+        user_id (int): ID пользователя
+    """
+    # Ждем 30 секунд перед первой проверкой
+    await asyncio.sleep(30)
+    
+    # Делаем до 24 попыток проверки (примерно 20 минут)
+    for attempt in range(24):  # Увеличено с 6 до 24
+        # Проверяем статус платежа
+        success, result = await check_payment(invoice_id)
+        
+        # Добавляем отладочный вывод
+        print(f"Проверка #{attempt+1} платежа {invoice_id}: success={success}, результат={result}")
+        
+        if success:
+            # Дополнительно проверяем состояние напрямую
+            state = result.get("state", "")
+            is_paid = result.get("is_paid", False) or state == "payed" or state == "paid" or state == "success"
+            
+            print(f"Статус платежа: {state}, is_paid={is_paid}")
+            
+            if is_paid:
+                # Если платеж оплачен, пополняем баланс пользователя
+                print(f"Пополняем баланс пользователя {user_id} на {deposit_amount} кредитов")
+                new_balance = add_to_balance(
+                    user_id, 
+                    deposit_amount,
+                    f"Автоматическое пополнение через CrystalPay (Invoice ID: {invoice_id})",
+                    "RUB",
+                    deposit_amount
+                )
+                
+                # Проверяем реферальную ссылку
+                referrals = get_referrals(user_id)
+                if referrals and any(ref['status'] == 'pending' for ref in referrals):
+                    activate_referral(user_id, deposit_amount)
+                    
+                    await message.answer(
+                        "🎉 Оплата автоматически определена и проведена!\n\n"
+                        f"Ваш баланс пополнен на {deposit_amount} кредитов.\n"
+                        f"Текущий баланс: {new_balance:.0f} кредитов\n\n"
+                        "Вы пришли по реферальной ссылке - ваш реферер получил вознаграждение!"
+                    )
+                else:
+                    await message.answer(
+                        "🎉 Оплата автоматически определена и проведена!\n\n"
+                        f"Ваш баланс пополнен на {deposit_amount} кредитов.\n"
+                        f"Текущий баланс: {new_balance:.0f} кредитов\n\n"
+                        "Теперь вы можете использовать бота."
+                    )
+                return
+        
+        # Если платеж не оплачен, ждем перед следующей попыткой
+        await asyncio.sleep(50)  # Проверяем каждые 50 секунд
+    
+    # Если после всех попыток платеж не прошел, отправляем уведомление
+    print(f"Автоматическая проверка платежа {invoice_id} завершена без успеха")
+
 async def process_deposit(message_or_callback, deposit_amount=None):
     """
     Создает платеж в CrystalPay и отправляет ссылку на оплату.
@@ -170,14 +236,18 @@ async def process_deposit(message_or_callback, deposit_amount=None):
         builder.button(text="Перейти к оплате", url=payment_url)
         builder.button(text="Проверить статус оплаты", callback_data=f"check_deposit:{invoice_id}:{deposit_amount}")
         
-        await msg_object.answer(
+        message = await msg_object.answer(
             "Платеж для пополнения баланса успешно создан!\n\n"
             "Для завершения оплаты перейдите по ссылке ниже. После оплаты "
-            f"ваш баланс будет пополнен на {deposit_amount} баллов.\n\n"
-            "Если вы уже оплатили, но баланс не обновился, "
-            "вы можете проверить статус платежа.",
+            f"ваш баланс будет пополнен на {deposit_amount} кредитов.\n\n"
+            "Баланс обновится автоматически в течение нескольких минут после оплаты. "
+            "Если баланс не обновляется, вы можете проверить статус платежа вручную.",
             reply_markup=builder.as_markup()
         )
+        
+        # Запускаем автоматическую проверку платежа
+        user_id = message_or_callback.from_user.id
+        asyncio.create_task(schedule_payment_check(message, invoice_id, deposit_amount, user_id))
     else:
         # В случае ошибки показываем сообщение
         error_message = result.get("error", "Произошла неизвестная ошибка. Пожалуйста, попробуйте позже.")
@@ -206,8 +276,11 @@ async def check_deposit_status(callback: CallbackQuery):
     success, result = await check_payment(invoice_id)
     
     if success:
-        is_paid = result.get("is_paid", False)
         state = result.get("state", "")
+        is_paid = result.get("is_paid", False) or state == "payed" or state == "paid" or state == "success"
+        
+        # Добавляем отладочный вывод
+        print(f"Проверка платежа {invoice_id}: статус={state}, is_paid={is_paid}")
         
         if is_paid:
             # Если платеж оплачен, пополняем баланс пользователя в баллах
@@ -228,18 +301,18 @@ async def check_deposit_status(callback: CallbackQuery):
                 
                 await callback.message.answer(
                     "🎉 Оплата успешно проведена!\n\n"
-                    f"Ваш баланс пополнен на {deposit_amount} баллов.\n"
-                    f"Текущий баланс: {new_balance:.0f} баллов\n\n"
+                    f"Ваш баланс пополнен на {deposit_amount} кредитов.\n"
+                    f"Текущий баланс: {new_balance:.0f} кредитов\n\n"
                     "Вы пришли по реферальной ссылке - ваш реферер получил вознаграждение!"
                 )
             else:
                 await callback.message.answer(
                     "🎉 Оплата успешно проведена!\n\n"
-                    f"Ваш баланс пополнен на {deposit_amount} баллов.\n"
-                    f"Текущий баланс: {new_balance:.0f} баллов\n\n"
+                    f"Ваш баланс пополнен на {deposit_amount} кредитов.\n"
+                    f"Текущий баланс: {new_balance:.0f} кредитов\n\n"
                     "Теперь вы можете использовать бота."
                 )
-        elif state == "pending" or state == "processing":
+        elif state == "pending" or state == "processing" or state == "notpayed":
             # Если платеж еще в ожидании или обработке
             await callback.message.answer(
                 "Ваш платеж находится в обработке.\n\n"
@@ -289,10 +362,10 @@ async def show_transaction_history(callback: CallbackQuery):
         
         # Отображаем сумму транзакции в баллах и в оригинальной валюте, если они разные
         if orig_currency != "RUB":
-            message_text += f"• {date}: {tx_type} на сумму {abs(amount):.0f} баллов "
+            message_text += f"• {date}: {tx_type} на сумму {abs(amount):.0f} кредитов "
             message_text += f"({abs(orig_amount):.2f} {orig_currency}) - {description}\n\n"
         else:
-            message_text += f"• {date}: {tx_type} на сумму {abs(amount):.0f} баллов - {description}\n\n"
+            message_text += f"• {date}: {tx_type} на сумму {abs(amount):.0f} кредитов - {description}\n\n"
     
     await callback.message.answer(message_text)
 
@@ -306,7 +379,7 @@ async def cmd_test_deposit(message: Message):
     user_id = message.from_user.id
     amount = 500  # Баллы (рубли)
     new_balance = add_to_balance(user_id, amount, "Тестовое пополнение баланса")
-    await message.answer(f"Тестовое пополнение на {amount} баллов! Новый баланс: {new_balance:.0f} баллов")
+    await message.answer(f"Тестовое пополнение на {amount} кредитов! Новый баланс: {new_balance:.0f} кредитов")
 
 @router.message(Command("pay"))
 async def cmd_pay(message: Message):

@@ -96,8 +96,8 @@ async def check_payment(invoice_id: str) -> Tuple[bool, Dict]:
             # Проверяем статус платежа
             state = response_data.get("state", "")
             
-            # В CrystalPay v3 успешный статус обозначается как "success"
-            is_paid = state == "success"
+            # В CrystalPay v3 успешный статус обозначается как "success" или "paid"
+            is_paid = state == "success" or state == "payed" or state == "paid"
             
             return True, {
                 "is_paid": is_paid,

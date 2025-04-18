@@ -74,20 +74,31 @@ async def is_in_consultation(state: FSMContext) -> bool:
 # Function to generate end consultation keyboard
 def get_end_consultation_keyboard():
     """
-    Creates a keyboard with 'End Consultation' and 'Convert to Audio' buttons.
+    Creates a keyboard with 'End Consultation', 'Choose Topic' and 'Convert to Audio' buttons.
     
     Returns:
         InlineKeyboardMarkup: Keyboard with consultation buttons
     """
     builder = InlineKeyboardBuilder()
+    # Добавляем кнопку выбора темы
+    builder.button(
+        text="📝 Выбрать тему консультации",
+        callback_data="change_topic"
+    )
+    # Добавляем кнопку завершения консультации
     builder.button(
         text="⛔ Завершить консультацию",
         callback_data="end_consultation"
     )
+    # Добавляем кнопку для аудио
     builder.button(
-        text="🔊 Хочу в виде аудио сообщения!",
+        text="🔊 Аудио сообщение",
         callback_data="convert_to_audio"
     )
+    
+    # Указываем порядок расположения кнопок: первая отдельно, остальные в ряд
+    builder.adjust(1, 2)
+    
     return builder.as_markup()
 
 # Function to handle consultation start
@@ -111,8 +122,10 @@ async def handle_consultation_start(callback: CallbackQuery, state: FSMContext):
     if balance < MIN_REQUIRED_BALANCE:
         await callback.message.answer(
             f"⚠️ Недостаточно средств для консультации.\n\n"
-            f"Ваш текущий баланс: {balance:.0f} баллов\n"
-            f"Минимальный баланс: {MIN_REQUIRED_BALANCE:.0f} баллов\n\n"
+            f"Ваш текущий баланс: {balance:.0f} кредитов\n"
+            f"Минимальный баланс: {MIN_REQUIRED_BALANCE:.0f} кредитов\n\n"
+            f"1 кредит = 1 рубль\n"
+            f"Средняя стоимость консультации составляет от 300 до 1000 кредитов в зависимости от темы и длительности.\n\n"
             f"Пожалуйста, пополните баланс.",
             reply_markup=main_menu_kb
         )
@@ -157,9 +170,9 @@ async def handle_consultation_end(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         f"✅ Консультация завершена!\n\n"
         f"Продолжительность: {minutes} мин. {seconds} сек.\n"
-        f"Текущий баланс: {balance:.0f} баллов\n\n"
+        f"Текущий баланс: {balance:.0f} кредитов\n\n"
         f"Спасибо за использование нашего сервиса. Вы можете начать новую консультацию в любое время.",
-        reply_markup=get_updated_main_menu_keyboard()  # Используем обновленную клавиатуру
+        reply_markup=get_updated_main_menu_keyboard()
     )
 
 # Handler for converting the last bot response to audio
@@ -215,8 +228,8 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
     if balance < AUDIO_CONVERSION_COST:
         await callback.message.answer(
             f"⚠️ Недостаточно средств для конвертации в аудио!\n\n"
-            f"Стоимость конвертации: {AUDIO_CONVERSION_COST} баллов\n"
-            f"Ваш текущий баланс: {balance:.0f} баллов\n\n"
+            f"Стоимость конвертации: {AUDIO_CONVERSION_COST} кредитов\n"
+            f"Ваш текущий баланс: {balance:.0f} кредитов\n\n"
             "Пожалуйста, пополните баланс."
         )
         return
@@ -224,7 +237,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
     # Уведомляем пользователя о начале конвертации
     status_message = await callback.message.answer(
         f"🔄 Конвертирую текст в аудио-сообщение...\n"
-        f"С вашего баланса будет списано {AUDIO_CONVERSION_COST} баллов."
+        f"С вашего баланса будет списано {AUDIO_CONVERSION_COST} кредитов."
     )
     
     try:
@@ -267,7 +280,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         new_balance = get_user_balance(user_id)
         await callback.message.answer(
             f"✅ Аудио-сообщение успешно создано!\n"
-            f"💰 Ваш текущий баланс: {new_balance:.0f} баллов",
+            f"💰 Ваш текущий баланс: {new_balance:.0f} кредитов",
             reply_markup=get_end_consultation_keyboard()
         )
         

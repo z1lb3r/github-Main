@@ -94,6 +94,23 @@ def init_db():
             ''')
             print("Таблица messages создана или уже существует")
             
+            # Создаем таблицу для приглашений совместимости
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS compatibility_invites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    invite_code TEXT UNIQUE,
+                    user_id INTEGER,
+                    description TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    accepted_by INTEGER,
+                    accepted_at DATETIME,
+                    FOREIGN KEY (user_id) REFERENCES users (user_id),
+                    FOREIGN KEY (accepted_by) REFERENCES users (user_id)
+                )
+            ''')
+            print("Таблица compatibility_invites создана или уже существует")
+            
             # Проверяем наличие новых столбцов в таблице transactions
             cursor.execute("PRAGMA table_info(transactions)")
             columns = [column[1] for column in cursor.fetchall()]
@@ -105,6 +122,15 @@ def init_db():
             if 'original_amount' not in columns and 'id' in columns:
                 conn.execute("ALTER TABLE transactions ADD COLUMN original_amount REAL DEFAULT 0.0")
                 print("Добавлен столбец 'original_amount' в таблицу 'transactions'")
+                
+            # Проверяем наличие столбца compatibility_type в таблице compatibility_invites
+            cursor.execute("PRAGMA table_info(compatibility_invites)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'compatibility_type' not in columns and any(column == 'id' for column in columns):
+                print("Добавляем колонку 'compatibility_type' в таблицу 'compatibility_invites'")
+                conn.execute("ALTER TABLE compatibility_invites ADD COLUMN compatibility_type TEXT DEFAULT 'general'")
+                print("Колонка 'compatibility_type' успешно добавлена")
 
 def add_user_if_not_exists(user_id: int, username: str):
     """
@@ -713,3 +739,183 @@ def mark_initial_analysis_completed(user_id: int) -> None:
                 print(f"[DEBUG] Успешно: первичный анализ отмечен как выполненный для пользователя {user_id}")
             else:
                 print(f"[DEBUG] ОШИБКА: Не удалось обновить статус первичного анализа для пользователя {user_id}")
+
+
+# Функции для работы с проверкой совместимости
+
+# БЫЛО
+def create_compatibility_invitation(user_id: int, description: str) -> str:
+    """
+    Создает новое приглашение для проверки совместимости.
+    
+    Args:
+        user_id (int): ID пользователя, создающего приглашение
+        description (str): Описание приглашения (например, "для моего друга")
+        
+    Returns:
+        str: Сгенерированный код приглашения
+    """
+    import uuid
+    import time
+    
+    # Генерируем уникальный код приглашения
+    invite_code = f"{uuid.uuid4().hex[:8]}_{int(time.time())}"
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            try:
+                conn.execute(
+                    """INSERT INTO compatibility_invites 
+                       (invite_code, user_id, description, status) 
+                       VALUES (?, ?, ?, ?)""",
+                    (invite_code, user_id, description, 'pending')
+                )
+                print(f"Создано приглашение для совместимости с кодом: {invite_code}")
+                return invite_code
+            except Exception as e:
+                print(f"Ошибка при создании приглашения: {str(e)}")
+                # В случае ошибки генерируем другой код
+                fallback_code = f"fb_{uuid.uuid4().hex[:6]}_{int(time.time())}"
+                print(f"Используем запасной код: {fallback_code}")
+                return fallback_code
+
+def count_user_invites(user_id: int) -> int:
+    """
+    Подсчитывает количество активных приглашений, созданных пользователем.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        int: Количество активных приглашений
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM compatibility_invites WHERE user_id = ? AND status = 'pending'",
+                (user_id,)
+            ).fetchone()
+            
+            count = row[0] if row else 0
+            print(f"Количество активных приглашений пользователя {user_id}: {count}")
+            return count
+
+
+def create_compatibility_invitation(user_id: int, description: str, compatibility_type: str = "general") -> str:
+    """
+    Создает новое приглашение для проверки совместимости.
+    
+    Args:
+        user_id (int): ID пользователя, создающего приглашение
+        description (str): Описание приглашения (например, "для моего друга")
+        compatibility_type (str): Тип совместимости: "general", "love", "friendship", "business"
+        
+    Returns:
+        str: Сгенерированный код приглашения или None, если достигнут лимит приглашений
+    """
+    import uuid
+    import time
+    
+    # Проверяем, сколько приглашений уже создал пользователь
+    active_invites_count = count_user_invites(user_id)
+    if active_invites_count >= 10:
+        print(f"Пользователь {user_id} достиг лимита приглашений (10)")
+        return None
+    
+    # Генерируем уникальный код приглашения
+    invite_code = f"{uuid.uuid4().hex[:8]}_{int(time.time())}"
+    
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            try:
+                conn.execute(
+                    """INSERT INTO compatibility_invites 
+                       (invite_code, user_id, description, compatibility_type, status) 
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (invite_code, user_id, description, compatibility_type, 'pending')
+                )
+                print(f"Создано приглашение для совместимости с кодом: {invite_code}, тип: {compatibility_type}")
+                return invite_code
+            except Exception as e:
+                print(f"Ошибка при создании приглашения: {str(e)}")
+                # В случае ошибки генерируем другой код
+                fallback_code = f"fb_{uuid.uuid4().hex[:6]}_{int(time.time())}"
+                print(f"Используем запасной код: {fallback_code}")
+                return fallback_code
+            
+
+def check_compatibility_invitation(invite_code: str) -> dict:
+    """
+    Проверяет существование и статус приглашения.
+    
+    Args:
+        invite_code (str): Код приглашения
+        
+    Returns:
+        dict: Информация о приглашении или None, если не найдено
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            row = conn.execute(
+                "SELECT * FROM compatibility_invites WHERE invite_code = ?",
+                (invite_code,)
+            ).fetchone()
+            
+            if row:
+                return dict(row)
+            
+            return None
+
+def accept_compatibility_invitation(invite_code: str, user_id: int) -> bool:
+    """
+    Отмечает приглашение как принятое.
+    
+    Args:
+        invite_code (str): Код приглашения
+        user_id (int): ID пользователя, принявшего приглашение
+        
+    Returns:
+        bool: True, если успешно, False в случае ошибки
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            try:
+                conn.execute(
+                    """UPDATE compatibility_invites 
+                       SET status = 'accepted', 
+                           accepted_by = ?, 
+                           accepted_at = CURRENT_TIMESTAMP
+                       WHERE invite_code = ? AND status = 'pending'""",
+                    (user_id, invite_code)
+                )
+                
+                return True
+            except Exception as e:
+                print(f"Ошибка при принятии приглашения: {str(e)}")
+                return False
+
+def get_user_compatibility_invites(user_id: int) -> list:
+    """
+    Получает список приглашений пользователя.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        list: Список приглашений
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            rows = conn.execute(
+                """SELECT i.*, u.full_name as accepted_by_name
+                   FROM compatibility_invites i
+                   LEFT JOIN users u ON i.accepted_by = u.user_id
+                   WHERE i.user_id = ?
+                   ORDER BY i.created_at DESC""",
+                (user_id,)
+            ).fetchall()
+            
+            return [dict(row) for row in rows]
+        

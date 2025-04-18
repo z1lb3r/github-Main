@@ -13,7 +13,6 @@ from services.db import get_user_profile
 
 router = Router()
 
-# Add "Change my data" button to main menu keyboard
 def get_updated_main_menu_keyboard():
     """
     Returns an updated main menu keyboard with the "Change my data" option.
@@ -21,7 +20,11 @@ def get_updated_main_menu_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="✨ Начать консультацию")
+                KeyboardButton(text="⭐️🔄⭐️ БЕСПЛАТНО проверить совместимость")
+            ],
+            [
+                KeyboardButton(text="✨ Начать консультацию"),
+                KeyboardButton(text="🔄 Продолжить консультацию")
             ],
             [
                 KeyboardButton(text="💰 Баланс"),
@@ -32,7 +35,8 @@ def get_updated_main_menu_keyboard():
                 KeyboardButton(text="👥 Реферальная программа")
             ],
             [
-                KeyboardButton(text="ℹ️ О нас")
+                KeyboardButton(text="ℹ️ О нас"),
+                KeyboardButton(text="📞 Контакты")
             ]
         ],
         resize_keyboard=True
