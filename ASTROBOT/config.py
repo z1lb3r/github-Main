@@ -7,7 +7,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Настройки Telegram бота
-CONFIG_TELEGRAM_BOT_TOKEN = "7859921634:AAFdMXnXr1v8uwCrkWZuWrz1cgJ6QRg9UFU"
+CONFIG_TELEGRAM_BOT_TOKEN = "8052577649:AAHCVUB8xHOEI5kJJ7V5gDtp8Q3uynjLAMI"
 
 # Настройки OpenAI API
 OPENAI_API_KEY = "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"
@@ -51,7 +51,7 @@ OUTPUT_TOKEN_MULTIPLIER = 1.0  # Множитель для исходящих т
 HD_ANALYSIS_TOKENS = 6667  # Эквивалент токенов для анализа Human Design (~100 баллов)
 
 # Настройки бота
-BOT_USERNAME = "cz_astrobot_bot"  # Username вашего бота без символа @
+BOT_USERNAME = "mySOMA_bot"  # Username вашего бота без символа @
 
 # Настройки реферальной системы
 REFERRAL_REWARD_USD = 300  # Вознаграждение 300 баллов за каждого приведенного пользователя
