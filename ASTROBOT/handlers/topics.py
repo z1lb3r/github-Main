@@ -359,10 +359,13 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     if not data.get("in_consultation", False):
         await start_consultation_mode(user_id, state)
     
+    # Получаем флаг type_shown из состояния
+    type_shown = data.get("type_shown", False)
+    
     # Получаем данные Holos, если они уже есть в состоянии
     holos_data = data.get("holos_response", {})
     
-    # Если данных Holos нет, получаем их
+    # Если данных Holos нет, получаем их заново
     if not holos_data:
         # Формируем строку даты и времени рождения
         date_str = f"{profile['birth_date']} {profile['birth_time']}"
@@ -400,14 +403,19 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     # Генерируем ответ с выбранным промптом
     await callback.message.answer(f"📋 Вы выбрали тему: {topic_name}")
     
-    # Создаем ответ на основе выбранной темы
+    # Создаем ответ на основе выбранной темы, передавая флаг type_shown
     expert_comment = answer_with_rag(
         prompt,
         holos_data,
         mode="free",
         conversation_history="",
-        max_tokens=2000
+        max_tokens=2000,
+        type_shown=type_shown
     )
+    
+    # После генерации ответа устанавливаем флаг, что тип был показан
+    if not type_shown:
+        await state.update_data(type_shown=True)
     
     # Отправляем сгенерированный ответ
     from services.db import save_message

@@ -223,6 +223,9 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Проверяем, находится ли пользователь в режиме консультации
     in_consultation = data.get("in_consultation", False)
     
+    # Получаем флаг type_shown из состояния
+    type_shown = data.get("type_shown", False)
+    
     # Если не в режиме консультации, просто отвечаем без списания средств
     if not in_consultation:
         await message.answer(
@@ -408,13 +411,23 @@ async def conversation_handler(message: Message, state: FSMContext):
                     prefix = "Пользователь: " if msg['sender'] == 'user' else "Бот: "
                     conversation_history += f"{prefix}{msg['content']}\n"
             
+            # Проверяем, является ли это явным запросом типа личности
+            type_request_keywords = ["мой тип", "тип личности", "какой у меня тип", "определи мой тип", "какой я тип"]
+            is_type_request = any(keyword in message.text.lower() for keyword in type_request_keywords)
+
+            
             expert_comment = answer_with_rag(
                 expert_prompt,
                 holos_data_combined,
                 mode="free",
                 conversation_history=conversation_history,
-                max_tokens=1200
+                max_tokens=1200,
+                type_shown=type_shown
             )
+            
+            # После генерации ответа устанавливаем флаг, что тип был показан
+            if not type_shown:
+                await state.update_data(type_shown=True)
             
             # Удаляем статусное сообщение
             await status_message.delete()
@@ -494,15 +507,28 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Формируем модифицированный запрос пользователя с учетом контекста отношений
     modified_query = message.text + relationship_prompt + clarity_instruction
+
+    # Проверяем, является ли это явным запросом типа личности
+    type_request_keywords = ["мой тип", "тип личности", "какой у меня тип", "определи мой тип", "какой я тип"]
+    is_type_request = any(keyword in message.text.lower() for keyword in type_request_keywords)
+
+    # Если это НЕ явный запрос типа, принудительно устанавливаем type_shown = True
+    if not is_type_request:
+        type_shown = True
+
     
-    # Генерируем ответ с помощью RAG
+    # Генерируем ответ с помощью RAG, передавая флаг type_shown
     answer = answer_with_rag(
         modified_query,  # Модифицированный запрос пользователя
         holos_response, 
         mode="free", 
         conversation_history=conversation_history, 
-        max_tokens=600
+        max_tokens=600,
+        type_shown=type_shown
     )
+    # После генерации ответа устанавливаем флаг, что тип был показан
+    if not type_shown:
+       await state.update_data(type_shown=True)
     
     # Подсчитываем количество токенов в ответе
     output_tokens = count_tokens(answer)

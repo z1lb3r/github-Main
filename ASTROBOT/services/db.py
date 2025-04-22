@@ -703,7 +703,8 @@ def user_has_initial_analysis(user_id: int) -> bool:
                 (user_id,)
             ).fetchone()
             
-            result = bool(row and row[0])
+            # Проверяем, что row существует и значение не None и не 0
+            result = bool(row and row[0] == 1)
             print(f"[DEBUG] Результат проверки для пользователя {user_id}: {result} (значение в БД: {row[0] if row else 'None'})")
             
             if result:
