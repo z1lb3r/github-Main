@@ -294,15 +294,8 @@ async def conversation_handler(message: Message, state: FSMContext):
         )
         return
     
-    # Извлекаем информацию об отношениях, если она присутствует
-    relationship_info = extract_relationship_info(message.text)
-    
-    # Проверяем, является ли сообщение запросом на определение типа личности
-    is_hd_request = is_hd_type_request(message.text)
-    needs_api_call = "через апи" in message.text.lower() or "через api" in message.text.lower()
-    
-    # Если это запрос на определение типа личности, обрабатываем его особым образом
-    if is_hd_request and needs_api_call:
+    # Обработка запроса через API (оставляем эту функциональность)
+    if is_hd_type_request(message.text):
         # Извлекаем дату, время и место рождения
         date, time, place = extract_birth_info(message.text)
         
@@ -367,40 +360,6 @@ async def conversation_handler(message: Message, state: FSMContext):
             # Сохраняем данные в состоянии для использования в будущих запросах
             await state.update_data(holos_response=holos_data_combined)
             
-            # Добавляем информацию об отношениях, если она есть
-            relationship_prompt = ""
-            if relationship_info["type"]:
-                relationship_type_map = {
-                    "family": "семейных отношениях",
-                    "romantic": "романтических отношениях",
-                    "work": "рабочих отношениях",
-                    "friends": "дружеских отношениях"
-                }
-                relationship_prompt = f" Пользователь интересуется советами о {relationship_type_map.get(relationship_info['type'], 'отношениях')}."
-                if relationship_info["person"]:
-                    person_map = {
-                        "mother": "матерью",
-                        "father": "отцом",
-                        "partner": "партнером",
-                        "boss": "начальником",
-                        "colleague": "коллегами",
-                        "friend": "друзьями",
-                        "child": "детьми"
-                    }
-                    relationship_prompt += f" Конкретно об отношениях с {person_map.get(relationship_info['person'], 'людьми')}."
-                
-                if relationship_info["context"]:
-                    context_map = {
-                        "conflict": "разрешении конфликтов",
-                        "communication": "улучшении коммуникации",
-                        "negotiation": "ведении переговоров",
-                        "boundaries": "установлении границ"
-                    }
-                    relationship_prompt += f" В контексте {context_map.get(relationship_info['context'], 'общения')}."
-            
-            # Генерируем ответ с помощью RAG
-            expert_prompt = f"Определи тип личности на основе предоставленных данных, используя простой язык. Объясни 1-2 ключевые особенности, а затем дай конкретные практические советы по улучшению отношений с другими людьми.{relationship_prompt}"
-            
             # Получаем историю диалога
             messages_history = get_last_messages(user_id, 100)
             conversation_history = ""
@@ -411,23 +370,21 @@ async def conversation_handler(message: Message, state: FSMContext):
                     prefix = "Пользователь: " if msg['sender'] == 'user' else "Бот: "
                     conversation_history += f"{prefix}{msg['content']}\n"
             
-            # Проверяем, является ли это явным запросом типа личности
-            type_request_keywords = ["мой тип", "тип личности", "какой у меня тип", "определи мой тип", "какой я тип"]
-            is_type_request = any(keyword in message.text.lower() for keyword in type_request_keywords)
-
+            # Явно указываем, что нужно показать тип (упрощенная логика)
+            expert_prompt = "Определи тип личности на основе предоставленных данных, используя простой язык. Объясни 1-2 ключевые особенности, а затем дай конкретные практические советы по улучшению отношений с другими людьми."
             
+            # После API запроса всегда сбрасываем флаг type_shown для показа типа
             expert_comment = answer_with_rag(
                 expert_prompt,
                 holos_data_combined,
                 mode="free",
                 conversation_history=conversation_history,
                 max_tokens=1200,
-                type_shown=type_shown
+                type_shown=False  # Всегда показываем тип при API запросе
             )
             
-            # После генерации ответа устанавливаем флаг, что тип был показан
-            if not type_shown:
-                await state.update_data(type_shown=True)
+            # Устанавливаем флаг, что тип был показан
+            await state.update_data(type_shown=True)
             
             # Удаляем статусное сообщение
             await status_message.delete()
@@ -443,19 +400,12 @@ async def conversation_handler(message: Message, state: FSMContext):
             await message.answer(f"Произошла ошибка при анализе: {str(e)}")
             return
     
-    # Если это обычный запрос, обрабатываем как раньше
+    # Стандартная обработка обычного запроса (без API)
     # Получаем общее количество сообщений
     msg_count = get_message_count(user_id)
-    print(f"[DEBUG] Общее количество сообщений пользователя {user_id}: {msg_count}")
     
     # Получаем историю диалога из базы данных
-    messages_history = get_last_messages(user_id, 100)  # Запрашиваем до 100 сообщений
-    print(f"[DEBUG] Получено {len(messages_history)} сообщений из БД")
-    
-    # Подсчитываем количество полных сообщений и суммаризаций
-    full_messages = [msg for msg in messages_history if not msg['is_summary']]
-    summary_messages = [msg for msg in messages_history if msg['is_summary']]
-    print(f"[DEBUG] Полных сообщений: {len(full_messages)}, суммаризаций: {len(summary_messages)}")
+    messages_history = get_last_messages(user_id, 100)
     
     # Формируем строку истории для промпта
     conversation_history = ""
@@ -469,66 +419,30 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Получаем данные Holos из предыдущей сессии
     holos_response = data.get("holos_response", {})
     
-    # Добавляем информацию об отношениях, если она есть
-    relationship_prompt = ""
-    if relationship_info["type"]:
-        relationship_type_map = {
-            "family": "семейных отношениях",
-            "romantic": "романтических отношениях",
-            "work": "рабочих отношениях",
-            "friends": "дружеских отношениях"
-        }
-        relationship_prompt = f" Пользователь интересуется советами о {relationship_type_map.get(relationship_info['type'], 'отношениях')}."
-        if relationship_info["person"]:
-            person_map = {
-                "mother": "матерью",
-                "father": "отцом",
-                "partner": "партнером",
-                "boss": "начальником",
-                "colleague": "коллегами",
-                "friend": "друзьями",
-                "child": "детьми"
-            }
-            relationship_prompt += f" Конкретно об отношениях с {person_map.get(relationship_info['person'], 'людьми')}."
-        
-        if relationship_info["context"]:
-            context_map = {
-                "conflict": "разрешении конфликтов",
-                "communication": "улучшении коммуникации",
-                "negotiation": "ведении переговоров",
-                "boundaries": "установлении границ"
-            }
-            relationship_prompt += f" В контексте {context_map.get(relationship_info['context'], 'общения')}."
+    # Упрощенная проверка на запрос типа личности
+    is_type_request = any(keyword in message.text.lower() for keyword in [
+        "мой тип", "тип личности", "какой у меня тип", 
+        "определи мой тип", "какой я тип", "узнать тип"
+    ])
     
-    # Если запрос неясен, добавляем инструкцию запросить уточнение
-    clarity_instruction = ""
-    if not relationship_info["type"] and not is_hd_request:
-        clarity_instruction = " Если запрос неясен или слишком общий, вежливо задай 1-2 уточняющих вопроса о том, с какими отношениями пользователь хотел бы помощи (семья, романтика, работа, друзья)."
-    
-    # Формируем модифицированный запрос пользователя с учетом контекста отношений
-    modified_query = message.text + relationship_prompt + clarity_instruction
-
-    # Проверяем, является ли это явным запросом типа личности
-    type_request_keywords = ["мой тип", "тип личности", "какой у меня тип", "определи мой тип", "какой я тип"]
-    is_type_request = any(keyword in message.text.lower() for keyword in type_request_keywords)
-
-    # Если это НЕ явный запрос типа, принудительно устанавливаем type_shown = True
-    if not is_type_request:
-        type_shown = True
-
+    # Если пользователь явно запрашивает тип, сбрасываем флаг type_shown
+    if is_type_request:
+        type_shown = False
+        await state.update_data(type_shown=False)
     
     # Генерируем ответ с помощью RAG, передавая флаг type_shown
     answer = answer_with_rag(
-        modified_query,  # Модифицированный запрос пользователя
+        message.text,  # Передаем оригинальный запрос пользователя
         holos_response, 
         mode="free", 
         conversation_history=conversation_history, 
         max_tokens=600,
         type_shown=type_shown
     )
-    # После генерации ответа устанавливаем флаг, что тип был показан
-    if not type_shown:
-       await state.update_data(type_shown=True)
+    
+    # Если запросили тип, устанавливаем флаг после генерации ответа
+    if is_type_request:
+        await state.update_data(type_shown=True)
     
     # Подсчитываем количество токенов в ответе
     output_tokens = count_tokens(answer)
@@ -573,20 +487,17 @@ async def conversation_handler(message: Message, state: FSMContext):
     if msg_count > 100:
         # Получаем самые старые сообщения (те, которые нужно суммаризировать)
         old_messages = get_last_messages(user_id, 100)[:-20]  # Исключаем 20 последних
-        print(f"[DEBUG] Суммаризируем {len(old_messages)} старых сообщений")
         
         # Суммаризируем старые сообщения
         summary = summarize_messages(old_messages)
         
         # Сохраняем суммаризацию как новое сообщение
         save_message(user_id, 'summary', summary, True)
-        print(f"[DEBUG] Создана и сохранена суммаризация: {summary[:100]}...")
         
         # Удаляем старые сообщения
         deleted_count = delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
-        print(f"[DEBUG] Удалено {deleted_count} старых сообщений")
     
-    # Отправляем ответ пользователю без информации о стоимости
+    # Отправляем ответ пользователю
     await message.answer(
         answer,
         reply_markup=get_end_consultation_keyboard()
