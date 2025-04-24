@@ -108,7 +108,7 @@ def load_gene_keys_text(holos_data: dict) -> str:
     
     return gene_text
 
-def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversation_history: str = "", max_tokens: int = 2800, type_shown: bool = False) -> str:
+def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversation_history: str = "", max_tokens: int = 2800) -> str:
     """
     Формирует ответ на запрос пользователя с использованием RAG.
     
@@ -118,44 +118,58 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
         mode (str): Режим ответа ("free" - свободный ответ)
         conversation_history (str): История диалога
         max_tokens (int): Максимальное количество токенов в ответе
-        type_shown (bool): Флаг, указывающий, был ли уже показан тип личности пользователю
         
     Returns:
         str: Сгенерированный ответ
     """
     print(f"[DEBUG] answer_with_rag вызван с запросом: '{query[:50]}...'")
     print(f"[DEBUG] Длина истории диалога: {len(conversation_history)} символов")
-    print(f"[DEBUG] Тип личности уже показан: {type_shown}")
     
-    # Упрощенная проверка на явный запрос типа личности
+    # Проверяем, есть ли данные API для печати
+    has_holos_data = isinstance(holos_data, dict) and ('api_response' in holos_data or (isinstance(holos_data.get('api_response'), dict)))
+    
+    # Вывод полных данных API для анализа в отладочный режим
+    if has_holos_data:
+        print("=== ПОЛНЫЕ ДАННЫЕ ОТ API HOLOS (Отладка) ===")
+        if 'api_response' in holos_data:
+            print(json.dumps(holos_data['api_response'], indent=4))
+        else:
+            print(json.dumps(holos_data, indent=4))
+        print("=== КОНЕЦ ОТЛАДОЧНЫХ ДАННЫХ ===")
+    
+    # Определяем, является ли запрос о типе личности
     is_type_request = any(keyword in query.lower() for keyword in [
         "мой тип", "тип личности", "какой у меня тип", 
-        "определи мой тип", "какой я тип", "узнать тип"
+        "определи мой тип", "какой я тип", "узнать тип", "типирова"
     ])
-
-    # Вставить сюда, перед формированием holos_text
-    print("=== ПОЛНЫЕ ДАННЫЕ ОТ API HOLOS ===")
-    if isinstance(holos_data, dict) and 'api_response' in holos_data:
-        print(json.dumps(holos_data['api_response'], indent=4))
-    else:
-        print(json.dumps(holos_data, indent=4))
-    print("=== КОНЕЦ ПОЛНЫХ ДАННЫХ ===")
-        
-    # Формируем текст с данными Holos
-    holos_text = f"Данные с сайта Holos:\n{holos_data}" if holos_data else "[Нет данных]"
     
-    # Загружаем описания генных ключей
-    gene_keys_text = load_gene_keys_text(holos_data)
+    # Проверяем, запрашивает ли пользователь информацию о генных ключах
+    is_gene_keys_request = any(keyword in query.lower() for keyword in [
+        "генны", "ключ", "gate", "гейт", "канал", "ворота"
+    ])
+    
+    # Первое сообщение определяем по пустой истории диалога
+    is_first_message = not conversation_history.strip()
+    
+    # Формируем текст с данными Holos только если это запрос типа, запрос о генных ключах или первое сообщение
+    include_full_data = is_type_request or is_gene_keys_request or is_first_message
+    
+    if include_full_data and has_holos_data:
+        holos_text = f"Данные с сайта Holos:\n{holos_data}"
+    else:
+        holos_text = "Базовая информация о профиле сохранена в системе."
+    
+    # Загружаем описания генных ключей только при необходимости
+    if include_full_data and has_holos_data:
+        gene_keys_text = load_gene_keys_text(holos_data)
+    else:
+        gene_keys_text = "Информация о генных ключах доступна по запросу."
     
     # Добавляем историю диалога
     history_text = f"История диалога:\n{conversation_history}" if conversation_history else ""
     
-    # Упрощенная логика определения показа типа
-    is_first_message = "Пользователь:" not in conversation_history and "Бот:" not in conversation_history
-    should_show_type = (is_first_message and not type_shown) or is_type_request
-    
-    # Определяем инструкцию для промпта
-    if should_show_type:
+    # Системный промпт с четкими инструкциями
+    if is_type_request:
         first_message_instruction = (
             "Определи тип личности пользователя по Human Design в начале ответа. "
             "Кратко укажи тип, профиль и авторитет, затем дай очень краткое описание "
@@ -164,12 +178,11 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
         )
     else:
         first_message_instruction = (
-            "СТРОГО ЗАПРЕЩЕНО упоминать или указывать тип личности пользователя в начале ответа. "
-            "Пользователь уже знает свой тип личности. Отвечай на вопрос напрямую, не повторяя тип личности. "
+            "Отвечай на вопрос пользователя о Human Design, не упоминая тип личности в начале ответа, "
+            "если пользователь явно не запрашивает этот тип. "
             "Ты — консультант (МУЖЧИНА) по Human Design, ВСЕГДА используй мужской род в своих ответах."
         )
     
-    # Системный промпт с четкими инструкциями
     system_msg = (
         f"{first_message_instruction}\n\n"
         
@@ -186,19 +199,17 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
         "Всегда стремись быть понятным и четким."
     )
     
-    # Формируем запрос для GPT
-    user_prompt = f"""
---- Данные пользователя (БД и API) ---
-{holos_text}
-
---- Описание генных ключей (файлы из папки data) ---
-{gene_keys_text}
-
---- История диалога ---
-{history_text}
-
-Текущий вопрос пользователя: {query}
-"""
+    # Формируем запрос для GPT с условным включением данных
+    user_prompt = ""
+    
+    # Добавляем данные Holos только если нужны полные данные
+    if include_full_data and has_holos_data:
+        user_prompt += f"--- Данные пользователя (БД и API) ---\n{holos_text}\n\n"
+        user_prompt += f"--- Описание генных ключей (файлы из папки data) ---\n{gene_keys_text}\n\n"
+    
+    # Всегда добавляем историю диалога и текущий запрос
+    user_prompt += f"--- История диалога ---\n{history_text}\n\n"
+    user_prompt += f"Текущий вопрос пользователя: {query}"
     
     # Выводим промпт для отладки (можно закомментировать в продакшн)
     print("[DEBUG] СИСТЕМНЫЙ ПРОМПТ (первые 500 символов):")
@@ -206,6 +217,12 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     
     print("[DEBUG] ПОЛЬЗОВАТЕЛЬСКИЙ ПРОМПТ (первые 500 символов):")
     print(user_prompt[:500] + "...")
+
+    system_tokens = count_tokens(system_msg)
+    user_tokens = count_tokens(user_prompt)
+    total_input_tokens = system_tokens + user_tokens
+
+    print(f"[ТОКЕНЫ] Запрос к LLM: системный промпт {system_tokens} + пользовательский промпт {user_tokens} = {total_input_tokens} токенов")
     
     # Отправляем запрос к ChatGPT
     response = openai.chat.completions.create(
@@ -219,10 +236,18 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     )
     
     answer_content = response.choices[0].message.content
+    output_tokens = count_tokens(answer_content)
+    print(f"[ТОКЕНЫ] Ответ от LLM: {output_tokens} токенов")
+    print(f"[ТОКЕНЫ] Итого: вход {total_input_tokens} / выход {output_tokens} = {total_input_tokens + output_tokens} токенов")
     print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
     
     # Возвращаем сгенерированный ответ
     return answer_content
+    print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
+    
+    # Возвращаем сгенерированный ответ
+    return answer_content
+
 
 def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     """
@@ -257,5 +282,5 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     )
     
     summary = response.choices[0].message.content
-    print(f"[DEBUG] Создана суммаризация: {summary[:100]}...")
+    print(f"[DEBUG] Создана суммаризация: {summary[:50]}...")
     return summary

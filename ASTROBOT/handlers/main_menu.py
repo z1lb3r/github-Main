@@ -576,13 +576,18 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     is_initial_analysis = not user_has_initial_analysis(user_id)
     print(f"[DEBUG] Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
     
-    # Получаем флаг из состояния
-    data = await state.get_data()
-    type_shown = data.get("type_shown", False)
-    
     # Модифицированный промпт с запросом краткого определения типа и стандартным текстом
     expert_prompt = """
-    Определи мой тип личности очень кратко (1-2 предложения с указанием типа, профиля, авторитета) и дай краткое объяснение основных характеристик (1-2 абзаца максимум).
+    Определи тип личности на основе предоставленных данных API.
+    ВАЖНО: Используй следующие поля из структуры API-ответа для определния типа личности:
+    - 'type' - для определения типа (manifestor, projector, generator, mangenerator, reflector)
+    - 'profile' - для определения профиля (например, 4/1)
+    - 'authority' - для определения авторитета (например, splenic, emotional)
+
+    Эти поля находятся в корне объекта data API-ответа.
+    НЕ придумывай тип, а используй ТОЛЬКО тот, который указан в поле 'type'.
+
+    После указания типа, объясни 1-2 ключевые особенности, а затем дай конкретные практические советы по улучшению отношений с другими людьми.
     
     После определения типа личности, вставь следующий текст:
 
@@ -603,19 +608,14 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
         mark_initial_analysis_completed(user_id)
         print(f"[DEBUG] Отмечено, что первичный анализ выполнен для пользователя {user_id}")
     
-    # Генерируем ответ с помощью RAG, передавая флаг type_shown
+    # Генерируем ответ с помощью RAG - убрали параметр type_shown
     expert_comment = answer_with_rag(
         expert_prompt,
         holos_data_combined,
         mode="free",
         conversation_history="",
-        max_tokens=3000,
-        type_shown=type_shown
+        max_tokens=3000
     )
-    
-    # После генерации ответа устанавливаем флаг, что тип был показан
-    if not type_shown:
-        await state.update_data(type_shown=True)
     
     # Сохраняем ответ бота в базу данных
     save_message(user_id, 'bot', expert_comment)

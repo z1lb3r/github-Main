@@ -223,9 +223,6 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Проверяем, находится ли пользователь в режиме консультации
     in_consultation = data.get("in_consultation", False)
     
-    # Получаем флаг type_shown из состояния
-    type_shown = data.get("type_shown", False)
-    
     # Если не в режиме консультации, просто отвечаем без списания средств
     if not in_consultation:
         await message.answer(
@@ -261,7 +258,8 @@ async def conversation_handler(message: Message, state: FSMContext):
 
     # Подсчитываем количество токенов во входящем сообщении
     input_tokens = count_tokens(message.text)
-    
+    print(f"[ТОКЕНЫ] Входящее сообщение для пользователя {user_id}: {input_tokens} токенов")
+
     # Оцениваем стоимость запроса (используем множитель для входящих токенов)
     estimated_cost = input_tokens * TOKEN_PRICE * INPUT_TOKEN_MULTIPLIER
     
@@ -294,7 +292,7 @@ async def conversation_handler(message: Message, state: FSMContext):
         )
         return
     
-    # Обработка запроса через API (оставляем эту функциональность)
+    # Обработка запроса через API для определения типа личности
     if is_hd_type_request(message.text):
         # Извлекаем дату, время и место рождения
         date, time, place = extract_birth_info(message.text)
@@ -361,7 +359,7 @@ async def conversation_handler(message: Message, state: FSMContext):
             await state.update_data(holos_response=holos_data_combined)
             
             # Получаем историю диалога
-            messages_history = get_last_messages(user_id, 100)
+            messages_history = get_last_messages(user_id, 50)
             conversation_history = ""
             for msg in messages_history:
                 if msg['is_summary']:
@@ -371,20 +369,27 @@ async def conversation_handler(message: Message, state: FSMContext):
                     conversation_history += f"{prefix}{msg['content']}\n"
             
             # Явно указываем, что нужно показать тип (упрощенная логика)
-            expert_prompt = "Определи тип личности на основе предоставленных данных, используя простой язык. Объясни 1-2 ключевые особенности, а затем дай конкретные практические советы по улучшению отношений с другими людьми."
+            expert_prompt = """
+            Определи тип личности на основе предоставленных данных API.
+            ВАЖНО: Используй следующие поля из структуры API-ответа для определния типа личности:
+            - 'type' - для определения типа (manifestor, projector, generator, mangenerator, reflector)
+            - 'profile' - для определения профиля (например, 4/1)
+            - 'authority' - для определения авторитета (например, splenic, emotional)
+
+            Эти поля находятся в корне объекта data API-ответа.
+            НЕ придумывай тип, а используй ТОЛЬКО тот, который указан в поле 'type'.
+
+            После указания типа, объясни 1-2 ключевые особенности, а затем дай конкретные практические советы по улучшению отношений с другими людьми.
+            """
             
-            # После API запроса всегда сбрасываем флаг type_shown для показа типа
+            # Генерация ответа с упрощённой логикой - без параметра type_shown
             expert_comment = answer_with_rag(
                 expert_prompt,
                 holos_data_combined,
                 mode="free",
                 conversation_history=conversation_history,
-                max_tokens=1200,
-                type_shown=False  # Всегда показываем тип при API запросе
+                max_tokens=1200
             )
-            
-            # Устанавливаем флаг, что тип был показан
-            await state.update_data(type_shown=True)
             
             # Удаляем статусное сообщение
             await status_message.delete()
@@ -405,7 +410,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     msg_count = get_message_count(user_id)
     
     # Получаем историю диалога из базы данных
-    messages_history = get_last_messages(user_id, 100)
+    messages_history = get_last_messages(user_id, 50)
     
     # Формируем строку истории для промпта
     conversation_history = ""
@@ -419,34 +424,19 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Получаем данные Holos из предыдущей сессии
     holos_response = data.get("holos_response", {})
     
-    # Упрощенная проверка на запрос типа личности
-    is_type_request = any(keyword in message.text.lower() for keyword in [
-        "мой тип", "тип личности", "какой у меня тип", 
-        "определи мой тип", "какой я тип", "узнать тип"
-    ])
-    
-    # Если пользователь явно запрашивает тип, сбрасываем флаг type_shown
-    if is_type_request:
-        type_shown = False
-        await state.update_data(type_shown=False)
-    
-    # Генерируем ответ с помощью RAG, передавая флаг type_shown
+    # Генерируем ответ с помощью RAG - упрощенная логика без type_shown
     answer = answer_with_rag(
         message.text,  # Передаем оригинальный запрос пользователя
         holos_response, 
         mode="free", 
         conversation_history=conversation_history, 
-        max_tokens=600,
-        type_shown=type_shown
+        max_tokens=600
     )
-    
-    # Если запросили тип, устанавливаем флаг после генерации ответа
-    if is_type_request:
-        await state.update_data(type_shown=True)
     
     # Подсчитываем количество токенов в ответе
     output_tokens = count_tokens(answer)
-    
+    print(f"[ТОКЕНЫ] Исходящий ответ для пользователя {user_id}: {output_tokens} токенов")
+
     # Оцениваем стоимость ответа (используем множитель для исходящих токенов)
     response_cost = output_tokens * TOKEN_PRICE * OUTPUT_TOKEN_MULTIPLIER
     
@@ -484,9 +474,9 @@ async def conversation_handler(message: Message, state: FSMContext):
     save_message(user_id, 'bot', answer)
     
     # Если сообщений больше 100, обрабатываем старые
-    if msg_count > 100:
+    if msg_count > 50:
         # Получаем самые старые сообщения (те, которые нужно суммаризировать)
-        old_messages = get_last_messages(user_id, 100)[:-20]  # Исключаем 20 последних
+        old_messages = get_last_messages(user_id, 50)[:-15]  # Исключаем 20 последних
         
         # Суммаризируем старые сообщения
         summary = summarize_messages(old_messages)
@@ -495,7 +485,7 @@ async def conversation_handler(message: Message, state: FSMContext):
         save_message(user_id, 'summary', summary, True)
         
         # Удаляем старые сообщения
-        deleted_count = delete_old_messages(user_id, 21)  # Оставляем 20 последних + 1 суммаризацию
+        deleted_count = delete_old_messages(user_id, 16)  # Оставляем 15 последних + 1 суммаризацию
     
     # Отправляем ответ пользователю
     await message.answer(
