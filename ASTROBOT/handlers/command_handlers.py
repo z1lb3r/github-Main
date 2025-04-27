@@ -21,6 +21,7 @@ from services.db import (
     get_user_profile,
     add_referral
 )
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -39,13 +40,13 @@ async def cmd_start(message: Message, state: FSMContext):
     username = message.from_user.username or "unknown"
 
     # Добавляем отладочный вывод
-    print(f"cmd_start для пользователя {user_id} ({username})")
+    logger.info(f"cmd_start для пользователя {user_id} ({username})")
     
     # Получаем профиль пользователя
     profile = get_user_profile(user_id)
     
-    # Еще отладочный вывод
-    print(f"Полученный профиль: {profile}")
+    # Отладочный вывод
+    logger.debug(f"Полученный профиль: {profile}")
     
     # Проверяем, содержит ли команда start параметры
     ref_params = message.text.split(' ')
@@ -55,7 +56,7 @@ async def cmd_start(message: Message, state: FSMContext):
         # Проверяем, является ли это приглашением для проверки совместимости
         if param.startswith('comp_'):
             invite_code = param[5:]  # Убираем префикс comp_
-            print(f"Пользователь {user_id} пришел по приглашению для проверки совместимости: {invite_code}")
+            logger.info(f"Пользователь {user_id} пришел по приглашению для проверки совместимости: {invite_code}")
             
             # Если профиль заполнен, обрабатываем приглашение
             if get_user_profile(user_id):
@@ -65,6 +66,7 @@ async def cmd_start(message: Message, state: FSMContext):
             # Иначе сохраняем код приглашения для обработки после регистрации
             else:
                 await state.update_data(start_invite_code=invite_code)
+                logger.info(f"Код приглашения {invite_code} сохранен для обработки после регистрации")
         
         # Если это не приглашение для совместимости, проверяем реферальную ссылку
         try:
@@ -72,8 +74,9 @@ async def cmd_start(message: Message, state: FSMContext):
             # Добавляем реферальную связь, если пользователи разные
             if ref_user_id != user_id:
                 add_referral(user_id, ref_user_id)
-                print(f"Пользователь {user_id} пришел по реферальной ссылке от {ref_user_id}")
+                logger.info(f"Пользователь {user_id} пришел по реферальной ссылке от {ref_user_id}")
         except ValueError:
+            logger.warning(f"Неверный параметр start: {param}")
             pass
     
     # Добавляем пользователя в БД, если его там еще нет
@@ -84,10 +87,12 @@ async def cmd_start(message: Message, state: FSMContext):
     
     if not profile:
         # Если профиль не заполнен, запускаем анкетирование
+        logger.info(f"Запуск онбординга для нового пользователя {user_id}")
         await message.answer("Добро пожаловать! Для начала работы необходимо заполнить анкету.")
         await start_onboarding(message, state)
     else:
         # Если профиль заполнен, показываем главное меню с обновленной клавиатурой
+        logger.info(f"Отправка приветственного сообщения существующему пользователю {user_id}")
         await message.answer(
         f"👋 Привет и добро пожаловать! \n\n"
         f"🧠 Мы предлагаем уникальный продукт - консультанта по отношениям между людьми на основе искусственного интеллекта обученного профессиональными психологами.\n\n"
@@ -117,6 +122,7 @@ async def cmd_menu(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    logger.info(f"Вызов команды /menu пользователем {message.from_user.id}")
     await message.answer(
         "Главное меню бота:",
         reply_markup=get_updated_main_menu_keyboard()
@@ -131,12 +137,17 @@ async def cmd_subscribe(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /subscribe пользователем {user_id}")
+    
     # Проверяем, есть ли уже активная подписка
-    if user_has_active_subscription(message.from_user.id):
+    if user_has_active_subscription(user_id):
+        logger.info(f"Пользователь {user_id} уже имеет активный баланс")
         await message.answer("У вас уже есть активный баланс на аккаунте.")
         return
     
     # Предлагаем оплатить подписку через CrystalPay
+    logger.info(f"Отправка пользователю {user_id} предложения пополнить баланс")
     await message.answer(
         "Для активации баланса, пожалуйста, пополните его. "
         "Вы можете сделать это через команду /payment.",
@@ -152,7 +163,9 @@ async def cmd_unsubscribe(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
-    deactivate_subscription(message.from_user.id)
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /unsubscribe пользователем {user_id}")
+    deactivate_subscription(user_id)
     await message.answer("Ваш баланс обнулен. Если захотите продолжить, вы можете пополнить его через /payment.")
 
 @router.message(Command("status"))
@@ -164,8 +177,10 @@ async def cmd_status(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /status пользователем {user_id}")
     from services.db import get_user_balance
-    balance = get_user_balance(message.from_user.id)
+    balance = get_user_balance(user_id)
     await message.answer(f"Ваш текущий баланс: ${balance:.2f}.")
 
 @router.message(Command("payment"))
@@ -177,6 +192,8 @@ async def cmd_payment(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /payment пользователем {user_id}")
     from handlers.main_menu import show_balance
     await show_balance(message)
 
@@ -185,6 +202,8 @@ async def cmd_pay(message: Message):
     """
     Альтернативная команда для /payment.
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /pay пользователем {user_id}")
     from handlers.main_menu import show_balance
     await show_balance(message)
 
@@ -197,6 +216,8 @@ async def cmd_about(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /about пользователем {user_id}")
     from handlers.main_menu import show_about_us
     await show_about_us(message)
 
@@ -209,6 +230,8 @@ async def cmd_terms(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /terms пользователем {user_id}")
     from handlers.main_menu import show_terms
     await show_terms(message)
 
@@ -221,6 +244,8 @@ async def cmd_referral(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /referral пользователем {user_id}")
     from handlers.referral import show_referral_program_enhanced
     await show_referral_program_enhanced(message)
 
@@ -233,6 +258,8 @@ async def cmd_contacts(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /contacts пользователем {user_id}")
     from handlers.main_menu import show_contacts
     await show_contacts(message)
 
@@ -245,6 +272,8 @@ async def cmd_help(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /help пользователем {user_id}")
     help_text = (
         "📋 Список доступных команд:\n\n"
         "/start - Начать работу с ботом\n"
@@ -270,5 +299,7 @@ async def cmd_change_data(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = message.from_user.id
+    logger.info(f"Вызов команды /changedata пользователем {user_id}")
     from handlers.change_data import change_user_data
     await change_user_data(message, state)

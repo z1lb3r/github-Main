@@ -8,18 +8,80 @@ import re
 import openai
 import tiktoken
 import json
+from logger import services_logger as logger
+from logger import log_tokens, log_api_request, log_api_response, log_api_error, log_debug
 from .pdf_data import get_pdf_content
-from config import OPENAI_API_KEY
+from config import OPENAI_API_KEY, OPENAI_API_KEYS
 
 # Модель ChatGPT для генерации ответов
-CHAT_MODEL =  "gpt-4.1-mini" # "ft:gpt-4o-2024-08-06:personal::BDAbtw7T"  "gpt-4.1-mini"    "gpt-4.1-2025-04-14"
+CHAT_MODEL = "gpt-4.1-mini" # "ft:gpt-4o-2024-08-06:personal::BDAbtw7T"  "gpt-4.1-mini"    "gpt-4.1-2025-04-14"
 # Модель для подсчета токенов
 ENCODING_MODEL = "cl100k_base"  # Энкодинг для GPT-4
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Устанавливаем API ключ для OpenAI
-openai.api_key = OPENAI_API_KEY
+# Класс для управления API ключами по круговой стратегии
+class APIKeyManager:
+    def __init__(self, api_keys):
+        self.api_keys = api_keys
+        self.current_index = 0
+        self.total_keys = len(api_keys)
+        self.usage_count = {i: 0 for i in range(len(api_keys))}  # Счетчик использования каждого ключа
+        self.total_requests = 0
+        logger.info(f"Инициализирован менеджер ключей с {self.total_keys} ключами")
+        
+    def get_next_key(self):
+        """Возвращает следующий ключ по круговой стратегии"""
+        key_index = self.current_index
+        key = self.api_keys[key_index]
+        
+        # Скрываем большую часть ключа для безопасности логирования
+        masked_key = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "короткий_ключ"
+        
+        # Увеличиваем счетчик использования текущего ключа
+        self.usage_count[key_index] += 1
+        self.total_requests += 1
+        
+        # Выводим детальную информацию об использовании ключа
+        logger.debug(f"Запрос #{self.total_requests}: Используется ключ #{key_index+1}/{self.total_keys} ({masked_key})")
+        logger.debug(f"Статистика использования ключей: {self.usage_count}")
+        
+        # Переходим к следующему ключу для следующего запроса
+        self.current_index = (self.current_index + 1) % self.total_keys
+        
+        return key
+    
+    def handle_error(self, error):
+        """Обрабатывает ошибки API и переключается на следующий ключ при необходимости"""
+        # Проверяем, связана ли ошибка с превышением лимитов
+        error_str = str(error)
+        rate_limit_errors = ["rate_limit", "capacity", "quota_exceeded", "maximum_context_length_exceeded"]
+        
+        if any(err_type in error_str.lower() for err_type in rate_limit_errors):
+            failed_key_index = (self.current_index - 1) % self.total_keys
+            logger.warning(f"Превышение лимитов для ключа #{failed_key_index+1}: {error_str}. Переключаемся на следующий ключ.")
+            return self.get_next_key()
+        else:
+            # Если ошибка не связана с лимитами, пробрасываем её дальше
+            raise error
+    
+    def get_usage_statistics(self):
+        """Возвращает статистику использования ключей в удобном для чтения формате"""
+        stats = []
+        for i in range(self.total_keys):
+            key = self.api_keys[i]
+            masked_key = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "короткий_ключ"
+            count = self.usage_count[i]
+            percentage = (count / self.total_requests * 100) if self.total_requests > 0 else 0
+            stats.append(f"Ключ #{i+1} ({masked_key}): {count} запросов ({percentage:.1f}%)")
+        
+        return "\n".join(stats)
+
+# Создаем экземпляр менеджера ключей
+key_manager = APIKeyManager(OPENAI_API_KEYS)
+
+# Начальный ключ
+openai.api_key = key_manager.get_next_key()
 
 def count_tokens(text: str) -> int:
     """
@@ -35,7 +97,7 @@ def count_tokens(text: str) -> int:
         encoding = tiktoken.get_encoding(ENCODING_MODEL)
         return len(encoding.encode(text))
     except Exception as e:
-        print(f"Ошибка при подсчете токенов: {str(e)}")
+        logger.error(f"Ошибка при подсчете токенов: {str(e)}")
         # Если не удалось использовать tiktoken, используем приблизительный подсчет
         # В среднем 1 токен ~ 4 символа для английского текста
         # и ~2-3 символа для русского текста
@@ -55,6 +117,9 @@ def load_gene_keys_text(holos_data: dict) -> str:
     gene_text = ""
     keys = []
     crossnum_str = None
+
+    # Нужно использовать корневую директорию проекта, а не директорию services
+    PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # Поиск номеров генных ключей в данных Holos
     # Проверяем разные варианты расположения данных в JSON
@@ -79,10 +144,10 @@ def load_gene_keys_text(holos_data: dict) -> str:
                 crossnum_str = api_data["cross"].get("crossnum")
 
     if not crossnum_str:
-        print("Не найдены данные о генных ключах в holos_data.")
+        logger.warning("Не найдены данные о генных ключах в holos_data.")
         return "[Нет данных о генных ключах]"
     
-    print("Исходная строка с номерами генных ключей:", crossnum_str)
+    logger.debug(f"Исходная строка с номерами генных ключей: {crossnum_str}")
     
     # Извлекаем номера ключей (числа от 1 до 64)
     found_numbers = re.findall(r"\d{1,2}", crossnum_str)
@@ -91,7 +156,7 @@ def load_gene_keys_text(holos_data: dict) -> str:
     # Загружаем описания для каждого ключа
     used_files = []
     for key in keys:
-        file_path = os.path.join(BASE_DIR, "data_summaries", f"{key}-й_ГЕННЫЙ_КЛЮЧ_summary.pdf")
+        file_path = os.path.join(PROJECT_DIR, "data_summaries", f"{key}-й_ГЕННЫЙ_КЛЮЧ_summary.pdf")
         used_files.append(file_path)
         
         try:
@@ -102,13 +167,13 @@ def load_gene_keys_text(holos_data: dict) -> str:
             gene_text += f"\n--- Не удалось загрузить описание для генного ключа {key}: {e} ---\n"
     
     # Выводим список используемых файлов (для отладки)
-    print("Используемые файлы для описания генных ключей:")
+    logger.debug("Используемые файлы для описания генных ключей:")
     for file in used_files:
-        print(file)
+        logger.debug(file)
     
     return gene_text
 
-def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversation_history: str = "", max_tokens: int = 2800) -> str:
+def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversation_history: str = "", max_tokens: int = 2800, type_shown: bool = False) -> str:
     """
     Формирует ответ на запрос пользователя с использованием RAG.
     
@@ -118,24 +183,25 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
         mode (str): Режим ответа ("free" - свободный ответ)
         conversation_history (str): История диалога
         max_tokens (int): Максимальное количество токенов в ответе
+        type_shown (bool): Был ли уже показан тип личности
         
     Returns:
         str: Сгенерированный ответ
     """
-    print(f"[DEBUG] answer_with_rag вызван с запросом: '{query[:50]}...'")
-    print(f"[DEBUG] Длина истории диалога: {len(conversation_history)} символов")
+    log_debug(logger, f"answer_with_rag вызван с запросом: '{query[:50]}...'")
+    log_debug(logger, f"Длина истории диалога: {len(conversation_history)} символов")
     
     # Проверяем, есть ли данные API для печати
     has_holos_data = isinstance(holos_data, dict) and ('api_response' in holos_data or (isinstance(holos_data.get('api_response'), dict)))
     
     # Вывод полных данных API для анализа в отладочный режим
-    if has_holos_data:
-        print("=== ПОЛНЫЕ ДАННЫЕ ОТ API HOLOS (Отладка) ===")
+    if has_holos_data and logger.isEnabledFor(10):  # DEBUG = 10
+        log_debug(logger, "=== ПОЛНЫЕ ДАННЫЕ ОТ API HOLOS (Отладка) ===")
         if 'api_response' in holos_data:
-            print(json.dumps(holos_data['api_response'], indent=4))
+            log_debug(logger, json.dumps(holos_data['api_response'], indent=4))
         else:
-            print(json.dumps(holos_data, indent=4))
-        print("=== КОНЕЦ ОТЛАДОЧНЫХ ДАННЫХ ===")
+            log_debug(logger, json.dumps(holos_data, indent=4))
+        log_debug(logger, "=== КОНЕЦ ОТЛАДОЧНЫХ ДАННЫХ ===")
     
     # Определяем, является ли запрос о типе личности
     is_type_request = any(keyword in query.lower() for keyword in [
@@ -211,42 +277,65 @@ def answer_with_rag(query: str, holos_data: dict, mode: str = "free", conversati
     user_prompt += f"--- История диалога ---\n{history_text}\n\n"
     user_prompt += f"Текущий вопрос пользователя: {query}"
     
-    # Выводим промпт для отладки (можно закомментировать в продакшн)
-    print("[DEBUG] СИСТЕМНЫЙ ПРОМПТ (первые 500 символов):")
-    print(system_msg[:500] + "...")
-    
-    print("[DEBUG] ПОЛЬЗОВАТЕЛЬСКИЙ ПРОМПТ (первые 500 символов):")
-    print(user_prompt[:500] + "...")
+    # Выводим промпт для отладки
+    logger.debug(f"СИСТЕМНЫЙ ПРОМПТ (первые 500 символов): {system_msg[:500]}...")
+    logger.debug(f"ПОЛЬЗОВАТЕЛЬСКИЙ ПРОМПТ (первые 500 символов): {user_prompt[:500]}...")
 
+    # Подсчитываем токены для системного промпта и пользовательского промпта
     system_tokens = count_tokens(system_msg)
     user_tokens = count_tokens(user_prompt)
     total_input_tokens = system_tokens + user_tokens
 
-    print(f"[ТОКЕНЫ] Запрос к LLM: системный промпт {system_tokens} + пользовательский промпт {user_tokens} = {total_input_tokens} токенов")
+    log_tokens(logger, f"Запрос к LLM: системный промпт {system_tokens} + пользовательский промпт {user_tokens} = {total_input_tokens} токенов")
+
+    # Пробуем отправить запрос, при ошибке меняем ключ
+    max_attempts = 3  # Максимальное количество попыток
+    current_attempt = 0
     
-    # Отправляем запрос к ChatGPT
-    response = openai.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_prompt}
-        ],
-        max_tokens=max_tokens,
-        temperature=0.7
-    )
-    
-    answer_content = response.choices[0].message.content
-    output_tokens = count_tokens(answer_content)
-    print(f"[ТОКЕНЫ] Ответ от LLM: {output_tokens} токенов")
-    print(f"[ТОКЕНЫ] Итого: вход {total_input_tokens} / выход {output_tokens} = {total_input_tokens + output_tokens} токенов")
-    print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
-    
-    # Возвращаем сгенерированный ответ
-    return answer_content
-    print(f"[DEBUG] Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
-    
-    # Возвращаем сгенерированный ответ
-    return answer_content
+    while current_attempt < max_attempts:
+        try:
+            # Устанавливаем текущий ключ
+            current_key = key_manager.get_next_key()
+            openai.api_key = current_key
+            logger.debug(f"Используем ключ #{key_manager.current_index} из {key_manager.total_keys}")
+            
+            # Отправляем запрос к ChatGPT
+            log_api_request(logger, f"Отправка запроса к модели {CHAT_MODEL}, токенов: {total_input_tokens}")
+            response = openai.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=0.7
+            )
+            
+            answer_content = response.choices[0].message.content
+            output_tokens = count_tokens(answer_content)
+            log_tokens(logger, f"Ответ от LLM: {output_tokens} токенов")
+            log_tokens(logger, f"Итого: вход {total_input_tokens} / выход {output_tokens} = {total_input_tokens + output_tokens} токенов")
+            log_api_response(logger, f"Получен ответ от модели (первые 100 символов): {answer_content[:100]}...")
+            
+            # Если успешно, возвращаем ответ
+            return answer_content
+            
+        except Exception as e:
+            current_attempt += 1
+            logger.error(f"Попытка {current_attempt} из {max_attempts}: {str(e)}")
+            
+            # Пробуем сменить ключ и повторить запрос
+            if current_attempt < max_attempts:
+                try:
+                    # Обрабатываем ошибку и пробуем получить другой ключ
+                    openai.api_key = key_manager.handle_error(e)
+                    logger.info(f"Переключились на ключ #{key_manager.current_index} из {key_manager.total_keys}")
+                except Exception as handle_error:
+                    logger.error(f"Не удалось обработать ошибку API: {str(handle_error)}")
+            else:
+                logger.error("Превышено максимальное количество попыток запроса к API")
+                # Возвращаем сообщение об ошибке, если все попытки не удались
+                return "Извините, в данный момент сервис недоступен. Пожалуйста, попробуйте позднее."
 
 
 def summarize_messages(messages: list, max_tokens: int = 500) -> str:
@@ -260,7 +349,7 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
     Returns:
         str: Краткое содержание сообщений
     """
-    print(f"[DEBUG] Суммаризация {len(messages)} сообщений с моделью {CHAT_MODEL}")
+    logger.info(f"Суммаризация {len(messages)} сообщений с моделью {CHAT_MODEL}")
     
     # Формируем диалог для суммаризации
     conversation = ""
@@ -269,18 +358,23 @@ def summarize_messages(messages: list, max_tokens: int = 500) -> str:
         conversation += f"{prefix}{msg['content']}\n\n"
     
     # Запрос к OpenAI для суммаризации
-    print(f"[DEBUG] Отправляем запрос на суммаризацию к модели: {CHAT_MODEL}")
+    logger.debug(f"Отправляем запрос на суммаризацию к модели: {CHAT_MODEL}")
     
-    response = openai.chat.completions.create(
-        model=CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": "Ты - помощник, который кратко суммирует диалоги. Создай краткое резюме диалога, сохраняя важные детали и контекст."},
-            {"role": "user", "content": f"Суммаризируй этот диалог между пользователем и ботом Human Design. Сохрани ключевую информацию о типе личности пользователя и важные темы обсуждения:\n\n{conversation}"}
-        ],
-        max_tokens=max_tokens,
-        temperature=0.7
-    )
-    
-    summary = response.choices[0].message.content
-    print(f"[DEBUG] Создана суммаризация: {summary[:50]}...")
-    return summary
+    try:
+        log_api_request(logger, "Запрос на суммаризацию диалога")
+        response = openai.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": "Ты - помощник, который кратко суммирует диалоги. Создай краткое резюме диалога, сохраняя важные детали и контекст."},
+                {"role": "user", "content": f"Суммаризируй этот диалог между пользователем и ботом Human Design. Сохрани ключевую информацию о типе личности пользователя и важные темы обсуждения:\n\n{conversation}"}
+            ],
+            max_tokens=max_tokens,
+            temperature=0.7
+        )
+        
+        summary = response.choices[0].message.content
+        log_api_response(logger, f"Создана суммаризация: {summary[:50]}...")
+        return summary
+    except Exception as e:
+        logger.error(f"Ошибка при суммаризации: {str(e)}")
+        return f"[Ошибка суммаризации: {str(e)}]"

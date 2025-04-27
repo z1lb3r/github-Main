@@ -4,6 +4,7 @@
 
 import os
 import PyPDF2
+from logger import services_logger as logger
 
 def get_pdf_content(pdf_path: str) -> str:
     """
@@ -17,18 +18,33 @@ def get_pdf_content(pdf_path: str) -> str:
     """
     # Проверяем, существует ли файл
     if not os.path.isfile(pdf_path):
-        return f"Файл {pdf_path} не найден. Проверьте путь."
+        error_msg = f"Файл {pdf_path} не найден. Проверьте путь."
+        logger.error(error_msg)
+        return error_msg
+    
+    logger.info(f"Извлечение текста из PDF-файла: {pdf_path}")
     
     text_output = []
     
-    # Открываем PDF-файл и извлекаем текст
-    with open(pdf_path, 'rb') as f:
-        reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text_output.append(page_text)
-    
-    # Объединяем текст всех страниц
-    full_text = "\n".join(text_output)
-    return full_text
+    try:
+        # Открываем PDF-файл и извлекаем текст
+        with open(pdf_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            total_pages = len(reader.pages)
+            logger.debug(f"PDF содержит {total_pages} страниц")
+            
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if page_text:
+                    text_output.append(page_text)
+                logger.debug(f"Обработана страница {i+1}/{total_pages}, текст: {len(page_text) if page_text else 0} символов")
+        
+        # Объединяем текст всех страниц
+        full_text = "\n".join(text_output)
+        logger.debug(f"Всего извлечено текста: {len(full_text)} символов")
+        return full_text
+        
+    except Exception as e:
+        error_msg = f"Ошибка при извлечении текста из PDF-файла: {str(e)}"
+        logger.error(error_msg)
+        return error_msg

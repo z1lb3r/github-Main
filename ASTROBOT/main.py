@@ -20,6 +20,7 @@ from handlers.compatibility import router as compatibility_router
 from services.db import init_db
 import threading
 from db_api import app as db_api_app
+from logger import main_logger as logger
 
 def main():
     """
@@ -42,10 +43,11 @@ def main():
     db_api_thread = threading.Thread(target=lambda: db_api_app.run(host='0.0.0.0', port=5001, debug=False))
     db_api_thread.daemon = True
     db_api_thread.start()
-    print("Database API started on port 5001")
+    logger.info("Database API started on port 5001")
 
     # Регистрируем маршрутизаторы (обработчики сообщений)
     # Порядок важен: более специфичные обработчики должны идти раньше общих
+    logger.info("Registering message handlers...")
     dp.include_router(command_handlers_router)    # Обработчики команд
     dp.include_router(onboarding_router)          # Обработчики онбординга
     dp.include_router(compatibility_router)       # Обработчики проверки совместимости
@@ -58,6 +60,7 @@ def main():
     dp.include_router(human_design_router)        # Обработчики для Human Design
     dp.include_router(payment_router)             # Обработчики для платежей
     dp.include_router(conversation_router)        # Общий обработчик сообщений
+    logger.info("All handlers registered successfully")
 
     # Настраиваем параметры для отправки больших медиафайлов
     bot_settings = {
@@ -66,7 +69,10 @@ def main():
     }
 
     # Запускаем поллинг сообщений
+    logger.info("Starting bot polling...")
     dp.run_polling(bot, **bot_settings)
 
 if __name__ == "__main__":
+    # Выводим информацию о запуске бота
+    logger.info("Initializing Telegram bot...")
     main()

@@ -12,6 +12,7 @@ from aiogram.fsm.state import StatesGroup, State
 from services.db import get_user_profile, check_compatibility_invitation, create_compatibility_invitation, accept_compatibility_invitation, get_user_compatibility_invites, count_user_invites
 from services.rag_utils import answer_with_rag
 from config import BOT_USERNAME
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -38,7 +39,10 @@ async def compatibility_menu(message: Message, state: FSMContext):
     
     # Проверяем, сколько у пользователя уже есть активных приглашений
     active_invites_count = count_user_invites(user_id)
+    logger.info(f"Пользователь {user_id} запросил меню совместимости. Активных приглашений: {active_invites_count}")
+    
     if active_invites_count >= 10:
+        logger.warning(f"Пользователь {user_id} достиг лимита приглашений (10/10)")
         await message.answer(
             "⚠️ Вы достигли максимального количества активных приглашений. "
             "Каждому пользователю доступно до 10 бесплатных приглашений для проверки совместимости. "
@@ -77,8 +81,10 @@ async def send_invite_step1(callback: CallbackQuery, state: FSMContext):
     # Проверяем лимит приглашений
     user_id = callback.from_user.id
     active_invites_count = count_user_invites(user_id)
+    logger.info(f"Пользователь {user_id} начал создание приглашения. Активных приглашений: {active_invites_count}")
     
     if active_invites_count >= 10:
+        logger.warning(f"Пользователь {user_id} достиг лимита приглашений при попытке создания нового (10/10)")
         await callback.message.answer(
             "⚠️ Вы достигли максимального количества активных приглашений.\n"
             "Каждому пользователю доступно до 10 бесплатных приглашений для проверки совместимости.\n"
@@ -88,6 +94,7 @@ async def send_invite_step1(callback: CallbackQuery, state: FSMContext):
     
     # Переходим сразу к выбору типа совместимости
     await state.set_state(CompatibilityStates.waiting_for_compatibility_type)
+    logger.debug(f"Установлено состояние выбора типа совместимости для пользователя {user_id}")
     
     # Создаем клавиатуру с типами совместимости и для кого они предназначены
     builder = InlineKeyboardBuilder()
@@ -122,9 +129,11 @@ async def create_invite_with_type(callback: CallbackQuery, state: FSMContext):
     # Получаем выбранный тип совместимости
     compatibility_type = callback.data.split("_")[2]  # comp_type_general -> general
     user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} выбрал тип совместимости: {compatibility_type}")
     
     # Очищаем состояние
     await state.clear()
+    logger.debug(f"Состояние очищено для пользователя {user_id}")
     
     # Определяем описание в зависимости от типа совместимости
     type_descriptions = {
@@ -142,6 +151,7 @@ async def create_invite_with_type(callback: CallbackQuery, state: FSMContext):
     invite_code = create_compatibility_invitation(user_id, description, compatibility_type)
     
     if not invite_code:
+        logger.warning(f"Пользователь {user_id} не смог создать приглашение (лимит превышен)")
         await callback.message.answer(
             "⚠️ Вы достигли максимального количества активных приглашений.\n"
             "Каждому пользователю доступно до 10 бесплатных приглашений для проверки совместимости.\n"
@@ -151,6 +161,7 @@ async def create_invite_with_type(callback: CallbackQuery, state: FSMContext):
     
     # Формируем ссылку для приглашения
     invite_link = f"https://t.me/{BOT_USERNAME}?start=comp_{invite_code}"
+    logger.info(f"Создано приглашение для проверки {type_text} совместимости: {invite_code}")
     
     # Создаем кнопку для копирования ссылки
     builder = InlineKeyboardBuilder()
@@ -179,6 +190,7 @@ async def show_my_invites(callback: CallbackQuery):
     
     user_id = callback.from_user.id
     invites = get_user_compatibility_invites(user_id)
+    logger.info(f"Пользователь {user_id} запросил список своих приглашений. Найдено: {len(invites) if invites else 0}")
     
     if not invites:
         await callback.message.answer(
@@ -220,6 +232,7 @@ async def copy_invite_link(callback: CallbackQuery):
     
     invite_code = callback.data.split(":")[1]
     invite_link = f"https://t.me/{BOT_USERNAME}?start=comp_{invite_code}"
+    logger.debug(f"Пользователь {callback.from_user.id} скопировал ссылку приглашения: {invite_code}")
     
     await callback.message.answer(
         f"Ссылка приглашения: {invite_link}\n\n"
@@ -232,6 +245,7 @@ async def back_to_compatibility_menu(callback: CallbackQuery):
     Возвращает пользователя в меню проверки совместимости.
     """
     await callback.answer()
+    logger.debug(f"Пользователь {callback.from_user.id} вернулся в меню совместимости")
     await compatibility_menu(callback.message)
 
 # Функция для обработки принятия приглашения
@@ -244,11 +258,13 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         invite_code (str): Код приглашения
     """
     user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} пытается принять приглашение: {invite_code}")
     
     # Проверяем, существует ли приглашение и не принято ли оно уже
     invitation = check_compatibility_invitation(invite_code)
     
     if not invitation:
+        logger.warning(f"Приглашение {invite_code} не найдено для пользователя {user_id}")
         await message.answer(
             "⚠️ Приглашение не найдено или уже не действительно. "
             "Пожалуйста, запросите новое приглашение."
@@ -256,6 +272,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         return
     
     if invitation['status'] == 'accepted':
+        logger.warning(f"Приглашение {invite_code} уже было принято ранее")
         await message.answer(
             "⚠️ Это приглашение уже было принято ранее."
         )
@@ -267,6 +284,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
     user_profile = get_user_profile(user_id)
     
     if not user_profile:
+        logger.warning(f"Пользователь {user_id} не заполнил профиль для принятия приглашения {invite_code}")
         await message.answer(
             "Для проверки совместимости необходимо сначала заполнить свой профиль. "
             "Пожалуйста, завершите регистрацию."
@@ -275,6 +293,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
     
     # Отмечаем приглашение как принятое
     accept_compatibility_invitation(invite_code, user_id)
+    logger.info(f"Приглашение {invite_code} принято пользователем {user_id}")
     
     # Получаем тип совместимости из приглашения
     compatibility_type = invitation.get('compatibility_type', 'general')
@@ -304,6 +323,8 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         longitude = profile["longitude"]
         altitude = profile["altitude"]
         
+        logger.debug(f"Запрос данных Holos для профиля: {profile['full_name']}, дата: {date_str}, координаты: {latitude}, {longitude}, {altitude}")
+        
         # Отправляем запрос к API Holos
         response_data = await send_request_to_holos(
             holos_url=HOLOS_DREAM_URL,
@@ -322,6 +343,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
     
     try:
         # Получаем данные для обоих пользователей
+        logger.info(f"Получаем данные HD для анализа совместимости пользователей {user_id} и {inviter_id}")
         inviter_holos_data = await get_user_holos_data(inviter_profile)
         user_holos_data = await get_user_holos_data(user_profile)
         
@@ -378,6 +400,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
             "user": user_holos_data
         }
         
+        logger.info(f"Генерация анализа совместимости типа '{compatibility_type}' для пользователей {user_id} и {inviter_id}")
         compatibility_analysis = answer_with_rag(
             query=query,
             holos_data=combined_holos_data,
@@ -391,6 +414,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         
         # Отправляем результат обоим пользователям - с индивидуальными преамбулами
         # Сообщение для принявшего приглашение
+        logger.info(f"Отправка результата анализа совместимости пользователю {user_id}")
         await message.answer(
             f"✅ Вы приняли приглашение для проверки {type_text} совместимости от пользователя {inviter_profile['full_name']}!\n\n"
             f"Анализ {type_text} совместимости между вами:\n\n"
@@ -401,6 +425,7 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         bot = message.bot
         
         # Сообщение для создателя приглашения
+        logger.info(f"Отправка результата анализа совместимости создателю приглашения {inviter_id}")
         await bot.send_message(
             inviter_id,
             f"✅ Пользователь {user_profile['full_name']} принял ваше приглашение для проверки {type_text} совместимости!\n\n"
@@ -409,5 +434,5 @@ async def process_compatibility_invitation(message: Message, invite_code: str):
         )
         
     except Exception as e:
+        logger.error(f"Ошибка при анализе совместимости: {str(e)}")
         await status_message.edit_text(f"Произошла ошибка при анализе: {str(e)}")
-        print(f"Ошибка при анализе совместимости: {str(e)}")

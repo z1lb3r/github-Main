@@ -10,7 +10,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_TELEGRAM_BOT_TOKEN = "8052577649:AAHCVUB8xHOEI5kJJ7V5gDtp8Q3uynjLAMI"
 
 # Настройки OpenAI API
-OPENAI_API_KEY = "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"
+# Список API ключей для круговой стратегии
+OPENAI_API_KEYS = [
+    "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",
+    "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"  
+]
+
+# Для обратной совместимости со старым кодом
+OPENAI_API_KEY = OPENAI_API_KEYS[0]
 
 # URL для запросов к geo.holos.house
 HOLOS_COMPOSITE_URL = "https://geo.holos.house/api/composite"

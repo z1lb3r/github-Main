@@ -10,6 +10,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from services.db import get_referrals, get_total_referral_rewards, add_referral, activate_referral, add_to_balance
 from config import REFERRAL_REWARD_USD
 from .keyboards import get_back_to_menu_keyboard
+from logger import handlers_logger as logger
 
 # Correct bot username
 BOT_USERNAME = "cz_astrobot_bot"  # Правильное имя бота
@@ -27,9 +28,11 @@ def register_referral(user_id, ref_user_id):
     """
     # Don't allow self-referrals
     if user_id == ref_user_id:
+        logger.warning(f"Попытка самореферальства пользователем {user_id}")
         return False
     
     # Add referral to database
+    logger.info(f"Регистрация реферальной связи: пользователь {user_id} пришел от реферера {ref_user_id}")
     add_referral(user_id, ref_user_id)
     return True
 
@@ -43,6 +46,7 @@ def reward_referrer(referrer_id, referred_id):
         referred_id (int): ID of the referred user
     """
     # Add reward to referrer's balance
+    logger.info(f"Начисление реферального вознаграждения ({REFERRAL_REWARD_USD} баллов) пользователю {referrer_id} за привлечение пользователя {referred_id}")
     add_to_balance(
         referrer_id,
         REFERRAL_REWARD_USD,
@@ -57,6 +61,7 @@ async def show_referral_program_enhanced(message: Message):
     Shows information about the referral program with enhanced details.
     """
     user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил информацию о реферальной программе")
     
     # Формируем реферальную ссылку с правильным username бота
     ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
@@ -66,6 +71,8 @@ async def show_referral_program_enhanced(message: Message):
     total_rewards = get_total_referral_rewards(user_id)
     active_referrals = sum(1 for ref in referrals if ref['status'] == 'active')
     pending_referrals = sum(1 for ref in referrals if ref['status'] == 'pending')
+    
+    logger.debug(f"Статистика рефералов для {user_id}: активных={active_referrals}, ожидающих={pending_referrals}, всего заработано=${total_rewards:.2f}")
     
     await message.answer(
         f"👥 Реферальная программа\n\n"
@@ -112,10 +119,13 @@ async def show_ref_stats_enhanced(callback: CallbackQuery):
     await callback.answer()
     
     user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запросил статистику своих рефералов")
+    
     referrals = get_referrals(user_id)
     total_rewards = get_total_referral_rewards(user_id)
     
     if not referrals:
+        logger.debug(f"У пользователя {user_id} нет рефералов")
         await callback.message.answer(
             "📊 Статистика реферальной программы\n\n"
             "Вы ещё никого не пригласили.\n"
@@ -150,6 +160,7 @@ async def show_ref_stats_enhanced(callback: CallbackQuery):
     
     msg += f"💰 Общий заработок: ${total_rewards:.2f}"
     
+    logger.debug(f"Отправка детальной статистики рефералов для пользователя {user_id}")
     await callback.message.answer(
         msg,
         reply_markup=get_back_to_menu_keyboard()
@@ -176,6 +187,7 @@ async def handle_copy_ref_link(callback: CallbackQuery):
     Handler for copy referral link button.
     """
     user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} скопировал реферальную ссылку")
     
     # Формируем реферальную ссылку с правильным username бота
     ref_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"

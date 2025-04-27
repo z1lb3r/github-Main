@@ -16,6 +16,7 @@ from config import (
     HOLOS_DREAM_URL
 )
 from handlers.consultation_mode import get_end_consultation_keyboard, start_consultation_mode
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -299,6 +300,9 @@ async def show_topics(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил меню выбора темы консультации")
+    
     await message.answer(
         "Выберите тему для консультации:",
         reply_markup=get_topics_keyboard()
@@ -313,6 +317,9 @@ async def change_topic_callback(callback: CallbackQuery):
     Args:
         callback (CallbackQuery): Callback query
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запросил смену темы консультации")
+    
     await callback.answer()
     await callback.message.answer(
         "Выберите тему для консультации:",
@@ -333,11 +340,14 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     await callback.answer()
     
     user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} выбрал тему консультации: {topic_name}")
     
     # Проверяем баланс пользователя
     balance = get_user_balance(user_id)
+    logger.debug(f"Баланс пользователя {user_id}: {balance:.0f} баллов, требуется: {MIN_REQUIRED_BALANCE:.0f} баллов")
     
     if balance < MIN_REQUIRED_BALANCE:
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для темы консультации '{topic_name}'")
         await callback.message.answer(
             f"⚠️ Недостаточно средств для консультации.\n\n"
             f"Ваш текущий баланс: {balance:.0f} баллов\n"
@@ -349,6 +359,7 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     # Получаем данные пользователя
     profile = get_user_profile(user_id)
     if not profile:
+        logger.warning(f"Профиль пользователя {user_id} не заполнен для темы консультации '{topic_name}'")
         await callback.message.answer(
             "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
         )
@@ -357,6 +368,7 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     # Активируем режим консультации, если он еще не активен
     data = await state.get_data()
     if not data.get("in_consultation", False):
+        logger.debug(f"Активация режима консультации для пользователя {user_id}")
         await start_consultation_mode(user_id, state)
     
     # Получаем данные Holos, если они уже есть в состоянии
@@ -371,6 +383,7 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
         altitude = profile["altitude"]
         
         # Отправляем запрос к API Holos
+        logger.info(f"Запрос данных Holos для пользователя {user_id}")
         await callback.message.answer("Получаю данные для анализа... Это может занять несколько секунд.")
         
         response_data = await send_request_to_holos(
@@ -395,12 +408,14 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
         }
         
         # Сохраняем данные в состоянии
+        logger.debug(f"Сохранение данных Holos в состоянии для пользователя {user_id}")
         await state.update_data(holos_response=holos_data)
     
     # Генерируем ответ с выбранным промптом
     await callback.message.answer(f"📋 Вы выбрали тему: {topic_name}")
     
-    # Создаем ответ на основе выбранной темы - убрали параметр type_shown
+    # Создаем ответ на основе выбранной темы
+    logger.info(f"Генерация ответа для темы '{topic_name}' для пользователя {user_id}")
     expert_comment = answer_with_rag(
         prompt,
         holos_data,
@@ -412,6 +427,7 @@ async def process_topic_selection(callback: CallbackQuery, state: FSMContext, to
     # Отправляем сгенерированный ответ
     from services.db import save_message
     save_message(user_id, 'bot', expert_comment)
+    logger.info(f"Ответ по теме '{topic_name}' отправлен пользователю {user_id}")
     
     await callback.message.answer(
         expert_comment,

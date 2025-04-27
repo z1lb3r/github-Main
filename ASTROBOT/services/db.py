@@ -6,6 +6,7 @@
 import sqlite3
 from contextlib import closing
 from config import SQLITE_DB_PATH
+from logger import db_logger as logger
 
 def init_db():
     """
@@ -13,7 +14,7 @@ def init_db():
     Создает таблицу пользователей, если она еще не существует.
     Добавляет поле balance, если оно отсутствует.
     """
-    print(f"Инициализация базы данных: {SQLITE_DB_PATH}")
+    logger.info(f"Инициализация базы данных: {SQLITE_DB_PATH}")
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Создаем основную таблицу пользователей
@@ -32,7 +33,7 @@ def init_db():
                     balance REAL DEFAULT 0.0  -- Баланс пользователя в USD
                 )
             ''')
-            print("Таблица users создана или уже существует")
+            logger.info("Таблица users создана или уже существует")
             
             # Проверяем, есть ли столбец balance, и добавляем его, если отсутствует
             cursor = conn.cursor()
@@ -41,12 +42,12 @@ def init_db():
             
             if 'balance' not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0.0")
-                print("Добавлен столбец 'balance' в таблицу 'users'")
+                logger.info("Добавлен столбец 'balance' в таблицу 'users'")
             
             # Проверяем, есть ли столбец initial_analysis_completed, и добавляем его, если отсутствует
             if 'initial_analysis_completed' not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN initial_analysis_completed BOOLEAN DEFAULT 0")
-                print("Добавлен столбец 'initial_analysis_completed' в таблицу 'users'")
+                logger.info("Добавлен столбец 'initial_analysis_completed' в таблицу 'users'")
             
             # Создаем таблицу для хранения истории транзакций
             conn.execute('''
@@ -62,7 +63,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             ''')
-            print("Таблица transactions создана или уже существует")
+            logger.info("Таблица transactions создана или уже существует")
             
             # Создаем таблицу для хранения реферальных связей
             conn.execute('''
@@ -78,7 +79,7 @@ def init_db():
                     FOREIGN KEY (referrer_id) REFERENCES users (user_id)
                 )
             ''')
-            print("Таблица referrals создана или уже существует")
+            logger.info("Таблица referrals создана или уже существует")
             
             # Создаем таблицу для хранения сообщений
             conn.execute('''
@@ -92,7 +93,7 @@ def init_db():
                     FOREIGN KEY (user_id) REFERENCES users (user_id)
                 )
             ''')
-            print("Таблица messages создана или уже существует")
+            logger.info("Таблица messages создана или уже существует")
             
             # Создаем таблицу для приглашений совместимости
             conn.execute('''
@@ -109,7 +110,7 @@ def init_db():
                     FOREIGN KEY (accepted_by) REFERENCES users (user_id)
                 )
             ''')
-            print("Таблица compatibility_invites создана или уже существует")
+            logger.info("Таблица compatibility_invites создана или уже существует")
             
             # Проверяем наличие новых столбцов в таблице transactions
             cursor.execute("PRAGMA table_info(transactions)")
@@ -117,20 +118,20 @@ def init_db():
             
             if 'original_currency' not in columns and 'id' in columns:
                 conn.execute("ALTER TABLE transactions ADD COLUMN original_currency TEXT DEFAULT 'USD'")
-                print("Добавлен столбец 'original_currency' в таблицу 'transactions'")
+                logger.info("Добавлен столбец 'original_currency' в таблицу 'transactions'")
                 
             if 'original_amount' not in columns and 'id' in columns:
                 conn.execute("ALTER TABLE transactions ADD COLUMN original_amount REAL DEFAULT 0.0")
-                print("Добавлен столбец 'original_amount' в таблицу 'transactions'")
+                logger.info("Добавлен столбец 'original_amount' в таблицу 'transactions'")
                 
             # Проверяем наличие столбца compatibility_type в таблице compatibility_invites
             cursor.execute("PRAGMA table_info(compatibility_invites)")
             columns = [column[1] for column in cursor.fetchall()]
             
             if 'compatibility_type' not in columns and any(column == 'id' for column in columns):
-                print("Добавляем колонку 'compatibility_type' в таблицу 'compatibility_invites'")
+                logger.info("Добавляем колонку 'compatibility_type' в таблицу 'compatibility_invites'")
                 conn.execute("ALTER TABLE compatibility_invites ADD COLUMN compatibility_type TEXT DEFAULT 'general'")
-                print("Колонка 'compatibility_type' успешно добавлена")
+                logger.info("Колонка 'compatibility_type' успешно добавлена")
 
 def add_user_if_not_exists(user_id: int, username: str):
     """
@@ -140,20 +141,20 @@ def add_user_if_not_exists(user_id: int, username: str):
         user_id (int): ID пользователя в Telegram
         username (str): Имя пользователя в Telegram
     """
-    print(f"Проверяем наличие пользователя {user_id} ({username}) в БД")
+    logger.debug(f"Проверяем наличие пользователя {user_id} ({username}) в БД")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             row = conn.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row is None:
-                print(f"Пользователь {user_id} не найден, добавляем в БД")
+                logger.info(f"Пользователь {user_id} не найден, добавляем в БД")
                 conn.execute(
                     "INSERT INTO users (user_id, username, balance) VALUES (?, ?, ?)",
                     (user_id, username, 0.0)
                 )
-                print(f"Пользователь {user_id} добавлен в БД")
+                logger.info(f"Пользователь {user_id} добавлен в БД")
             else:
-                print(f"Пользователь {user_id} уже существует в БД")
+                logger.debug(f"Пользователь {user_id} уже существует в БД")
 
 def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_time: str, latitude: float, longitude: float, altitude: float):
     """
@@ -168,21 +169,21 @@ def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_tim
         longitude (float): Долгота места рождения
         altitude (float): Высота места рождения
     """
-    print(f"Обновляем профиль пользователя {user_id}:")
-    print(f"Имя: {full_name}, Дата: {birth_date}, Время: {birth_time}, Координаты: {latitude}, {longitude}, {altitude}")
+    logger.info(f"Обновляем профиль пользователя {user_id}:")
+    logger.debug(f"Имя: {full_name}, Дата: {birth_date}, Время: {birth_time}, Координаты: {latitude}, {longitude}, {altitude}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Сначала проверим, существует ли пользователь
             check = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if not check:
-                print(f"ОШИБКА: Пользователь {user_id} не найден в БД для обновления профиля")
+                logger.warning(f"Пользователь {user_id} не найден в БД для обновления профиля")
                 # Создадим пользователя, если он не существует
                 conn.execute(
                     "INSERT INTO users (user_id, username) VALUES (?, ?)",
                     (user_id, f"user_{user_id}")
                 )
-                print(f"Пользователь {user_id} был автоматически создан")
+                logger.info(f"Пользователь {user_id} был автоматически создан")
                 
             # Обновляем профиль
             conn.execute(
@@ -192,11 +193,11 @@ def update_user_profile(user_id: int, full_name: str, birth_date: str, birth_tim
                    WHERE user_id = ?""",
                 (full_name, birth_date, birth_time, latitude, longitude, altitude, user_id)
             )
-            print(f"Профиль пользователя {user_id} обновлен в БД")
+            logger.info(f"Профиль пользователя {user_id} обновлен в БД")
             
             # Проверяем, что данные действительно обновились
             row = conn.execute("SELECT full_name FROM users WHERE user_id = ?", (user_id,)).fetchone()
-            print(f"Проверка обновления: full_name = {row[0] if row else 'Нет данных'}")
+            logger.debug(f"Проверка обновления: full_name = {row[0] if row else 'Нет данных'}")
 
 def get_user_profile(user_id: int) -> dict:
     """
@@ -208,30 +209,30 @@ def get_user_profile(user_id: int) -> dict:
     Returns:
         dict: Словарь с данными пользователя или пустой словарь, если профиль не заполнен
     """
-    print(f"Запрашиваем профиль для user_id={user_id}")
+    logger.debug(f"Запрашиваем профиль для user_id={user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Проверяем, существует ли пользователь
             exists_query = "SELECT 1 FROM users WHERE user_id = ?"
             user_exists = conn.execute(exists_query, (user_id,)).fetchone()
-            print(f"Пользователь существует в БД: {user_exists is not None}")
+            logger.debug(f"Пользователь существует в БД: {user_exists is not None}")
             
             if not user_exists:
-                print(f"Пользователь {user_id} не найден в БД")
+                logger.warning(f"Пользователь {user_id} не найден в БД")
                 return {}
             
             # Получаем данные пользователя
             query = """SELECT full_name, birth_date, birth_time, birth_latitude, birth_longitude, birth_altitude, balance 
                        FROM users WHERE user_id = ?"""
             row = conn.execute(query, (user_id,)).fetchone()
-            print(f"Получены данные пользователя: {row}")
+            logger.debug(f"Получены данные пользователя: {row}")
             
             # Если запись существует, возвращаем словарь
             if row:
                 # Проверяем основной индикатор заполненности профиля - имя
                 if not row[0]:
-                    print(f"Имя пользователя {user_id} не заполнено, считаем профиль пустым")
+                    logger.debug(f"Имя пользователя {user_id} не заполнено, считаем профиль пустым")
                     return {}
                     
                 result = {
@@ -243,10 +244,10 @@ def get_user_profile(user_id: int) -> dict:
                     "altitude": row[5] if row[5] is not None else 0.0,
                     "balance": row[6] if row[6] is not None else 0.0
                 }
-                print(f"Возвращаем результат: {result}")
+                logger.debug(f"Возвращаем результат: {result}")
                 return result
             
-            print("Строка не найдена, возвращаем пустой словарь")
+            logger.debug("Строка не найдена, возвращаем пустой словарь")
             return {}
 
 def get_user_balance(user_id: int) -> float:
@@ -264,9 +265,9 @@ def get_user_balance(user_id: int) -> float:
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
                 balance = float(row[0]) if row[0] is not None else 0.0
-                print(f"Баланс пользователя {user_id}: {balance:.0f} баллов")
+                logger.debug(f"Баланс пользователя {user_id}: {balance:.0f} баллов")
                 return balance
-            print(f"Пользователь {user_id} не найден, возвращаем баланс 0.0")
+            logger.warning(f"Пользователь {user_id} не найден, возвращаем баланс 0.0")
             return 0.0
 
 def add_to_balance(user_id: int, amount: float, description: str = "Пополнение баланса", original_currency: str = "RUB", original_amount: float = None):
@@ -283,7 +284,7 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
     Returns:
         float: Новый баланс пользователя
     """
-    print(f"Пополнение баланса пользователя {user_id} на {amount:.0f} баллов ({description})")
+    logger.info(f"Пополнение баланса пользователя {user_id} на {amount:.0f} баллов ({description})")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -307,9 +308,9 @@ def add_to_balance(user_id: int, amount: float, description: str = "Пополн
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if row:
                 new_balance = float(row[0])
-                print(f"Новый баланс пользователя {user_id}: {new_balance:.0f} баллов")
+                logger.info(f"Новый баланс пользователя {user_id}: {new_balance:.0f} баллов")
                 return new_balance
-            print(f"ОШИБКА: Пользователь {user_id} не найден после пополнения баланса")
+            logger.error(f"Пользователь {user_id} не найден после пополнения баланса")
             return 0.0
 
 def subtract_from_balance(user_id: int, amount: float, description: str = "Списание за использование бота") -> bool:
@@ -324,20 +325,20 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
     Returns:
         bool: True, если списание прошло успешно, False, если недостаточно средств
     """
-    print(f"Списание с баланса пользователя {user_id}: {amount:.2f} баллов ({description})")
+    logger.info(f"Списание с баланса пользователя {user_id}: {amount:.2f} баллов ({description})")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             # Проверяем, достаточно ли средств
             row = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()
             if not row:
-                print(f"ОШИБКА: Пользователь {user_id} не найден при попытке списания")
+                logger.error(f"Пользователь {user_id} не найден при попытке списания")
                 return False
                 
             current_balance = float(row[0]) if row[0] is not None else 0.0
             
             if current_balance < amount:
-                print(f"Недостаточно средств: баланс {current_balance:.2f} баллов, требуется {amount:.2f} баллов")
+                logger.warning(f"Недостаточно средств: баланс {current_balance:.2f} баллов, требуется {amount:.2f} баллов")
                 return False
             
             # Списываем средства
@@ -354,10 +355,9 @@ def subtract_from_balance(user_id: int, amount: float, description: str = "Сп�
             
             # Получаем обновленный баланс для проверки
             new_balance = conn.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
-            print(f"Списание успешно. Новый баланс: {new_balance:.2f} баллов")
+            logger.info(f"Списание успешно. Новый баланс: {new_balance:.2f} баллов")
             
             return True
-        
 
 def get_transaction_history(user_id: int, limit: int = 10) -> list:
     """
@@ -370,7 +370,7 @@ def get_transaction_history(user_id: int, limit: int = 10) -> list:
     Returns:
         list: Список транзакций
     """
-    print(f"Запрос истории транзакций пользователя {user_id} (лимит: {limit})")
+    logger.debug(f"Запрос истории транзакций пользователя {user_id} (лимит: {limit})")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row  # Для доступа к строкам по имени столбца
@@ -385,7 +385,7 @@ def get_transaction_history(user_id: int, limit: int = 10) -> list:
             ).fetchall()
             
             result = [dict(row) for row in rows]
-            print(f"Получено {len(result)} транзакций")
+            logger.debug(f"Получено {len(result)} транзакций")
             return result
 
 def user_has_active_subscription(user_id: int) -> bool:
@@ -402,7 +402,7 @@ def user_has_active_subscription(user_id: int) -> bool:
     from config import MIN_REQUIRED_BALANCE
     balance = get_user_balance(user_id)
     has_subscription = balance >= MIN_REQUIRED_BALANCE
-    print(f"Проверка подписки пользователя {user_id}: {has_subscription} (баланс: {balance:.0f} баллов, мин. баланс: {MIN_REQUIRED_BALANCE:.0f} баллов)")
+    logger.debug(f"Проверка подписки пользователя {user_id}: {has_subscription} (баланс: {balance:.0f} баллов, мин. баланс: {MIN_REQUIRED_BALANCE:.0f} баллов)")
     return has_subscription
 
 def activate_subscription(user_id: int):
@@ -410,7 +410,7 @@ def activate_subscription(user_id: int):
     Устаревший метод для обратной совместимости.
     В новой модели используйте add_to_balance.
     """
-    print(f"УСТАРЕВШИЙ МЕТОД: activate_subscription вызван для пользователя {user_id}")
+    logger.warning(f"УСТАРЕВШИЙ МЕТОД: activate_subscription вызван для пользователя {user_id}")
     # Ничего не делаем, оставляем для обратной совместимости
     pass
 
@@ -419,14 +419,14 @@ def deactivate_subscription(user_id: int):
     Устаревший метод для обратной совместимости.
     В новой модели это обнуление баланса пользователя.
     """
-    print(f"Обнуление баланса пользователя {user_id}")
+    logger.info(f"Обнуление баланса пользователя {user_id}")
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
             conn.execute(
                 "UPDATE users SET balance = 0 WHERE user_id = ?",
                 (user_id,)
             )
-            print(f"Баланс пользователя {user_id} обнулен")
+            logger.info(f"Баланс пользователя {user_id} обнулен")
 
 def add_referral(user_id: int, referrer_id: int):
     """
@@ -436,7 +436,7 @@ def add_referral(user_id: int, referrer_id: int):
         user_id (int): ID пользователя, который был приглашен
         referrer_id (int): ID пользователя, который пригласил
     """
-    print(f"Регистрация реферальной связи: пользователь {user_id} приглашен пользователем {referrer_id}")
+    logger.info(f"Регистрация реферальной связи: пользователь {user_id} приглашен пользователем {referrer_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -452,9 +452,9 @@ def add_referral(user_id: int, referrer_id: int):
                     "INSERT INTO referrals (user_id, referrer_id) VALUES (?, ?)",
                     (user_id, referrer_id)
                 )
-                print(f"Зарегистрирована новая реферальная связь")
+                logger.info(f"Зарегистрирована новая реферальная связь")
             else:
-                print(f"Реферальная связь для пользователя {user_id} уже существует")
+                logger.info(f"Реферальная связь для пользователя {user_id} уже существует")
 
 def activate_referral(user_id: int, amount: float):
     """
@@ -463,11 +463,11 @@ def activate_referral(user_id: int, amount: float):
     
     Args:
         user_id (int): ID пользователя, который пополнил баланс
-        amount (float): Сумма пополнения в баллах
+        amount (float): Сумма пополнения
     """
     from config import REFERRAL_REWARD_USD
     
-    print(f"Активация реферальной связи для пользователя {user_id} (пополнение: {amount:.0f} баллов)")
+    logger.info(f"Активация реферальной связи для пользователя {user_id} (пополнение: {amount:.0f} баллов)")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -478,15 +478,15 @@ def activate_referral(user_id: int, amount: float):
             ).fetchone()
             
             if row is None:
-                print(f"Нет ожидающей активации реферальной связи для пользователя {user_id}")
+                logger.debug(f"Нет ожидающей активации реферальной связи для пользователя {user_id}")
                 return  # Нет реферальной связи или она уже активирована
             
             ref_id, referrer_id, status = row
-            print(f"Найдена реферальная связь: ID={ref_id}, реферер={referrer_id}, статус={status}")
+            logger.info(f"Найдена реферальная связь: ID={ref_id}, реферер={referrer_id}, статус={status}")
             
             # Используем фиксированную сумму вознаграждения из конфига
             reward = REFERRAL_REWARD_USD  # Теперь это баллы (рубли)
-            print(f"Начисляем вознаграждение в размере {reward:.0f} баллов")
+            logger.info(f"Начисляем вознаграждение в размере {reward:.0f} баллов")
             
             # Обновляем статус реферальной связи
             conn.execute(
@@ -519,8 +519,7 @@ def activate_referral(user_id: int, amount: float):
                 )
             )
             
-            print(f"Вознаграждение успешно начислено пользователю {referrer_id}")
-
+            logger.info(f"Вознаграждение успешно начислено пользователю {referrer_id}")
 
 def get_referrals(user_id: int) -> list:
     """
@@ -532,7 +531,7 @@ def get_referrals(user_id: int) -> list:
     Returns:
         list: Список словарей с информацией о рефералах
     """
-    print(f"Запрос списка рефералов пользователя {user_id}")
+    logger.debug(f"Запрос списка рефералов пользователя {user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
@@ -548,9 +547,8 @@ def get_referrals(user_id: int) -> list:
             ).fetchall()
             
             result = [dict(row) for row in rows]
-            print(f"Получено {len(result)} рефералов")
+            logger.debug(f"Получено {len(result)} рефералов")
             return result
-        
 
 def get_total_referral_rewards(user_id: int) -> float:
     """
@@ -562,7 +560,7 @@ def get_total_referral_rewards(user_id: int) -> float:
     Returns:
         float: Общая сумма вознаграждений
     """
-    print(f"Запрос общей суммы реферальных вознаграждений пользователя {user_id}")
+    logger.debug(f"Запрос общей суммы реферальных вознаграждений пользователя {user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -573,14 +571,13 @@ def get_total_referral_rewards(user_id: int) -> float:
             
             if row and row[0]:
                 total = float(row[0])
-                print(f"Общая сумма вознаграждений: {total:.0f} баллов")
+                logger.debug(f"Общая сумма вознаграждений: {total:.0f} баллов")
                 return total
             
-            print("Нет активных реферальных вознаграждений")
+            logger.debug("Нет активных реферальных вознаграждений")
             return 0.0
 
 # Новые функции для работы с историей сообщений
-
 def save_message(user_id: int, sender: str, content: str, is_summary: bool = False):
     """
     Сохраняет сообщение в БД.
@@ -591,7 +588,7 @@ def save_message(user_id: int, sender: str, content: str, is_summary: bool = Fal
         content (str): Содержание сообщения
         is_summary (bool): Является ли сообщение кратким содержанием
     """
-    print(f"Сохранение сообщения для пользователя {user_id}: sender={sender}, is_summary={is_summary}")
+    logger.debug(f"Сохранение сообщения для пользователя {user_id}: sender={sender}, is_summary={is_summary}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -599,7 +596,7 @@ def save_message(user_id: int, sender: str, content: str, is_summary: bool = Fal
                 "INSERT INTO messages (user_id, sender, content, is_summary) VALUES (?, ?, ?, ?)",
                 (user_id, sender, content, is_summary)
             )
-            print(f"Сообщение сохранено в БД")
+            logger.debug(f"Сообщение сохранено в БД")
 
 def get_last_messages(user_id: int, limit: int = 20):
     """
@@ -612,7 +609,7 @@ def get_last_messages(user_id: int, limit: int = 20):
     Returns:
         list: Список сообщений
     """
-    print(f"Запрос последних {limit} сообщений пользователя {user_id}")
+    logger.debug(f"Запрос последних {limit} сообщений пользователя {user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         conn.row_factory = sqlite3.Row
@@ -628,7 +625,7 @@ def get_last_messages(user_id: int, limit: int = 20):
             
             result = [dict(row) for row in rows]
             result.reverse()  # Меняем порядок на хронологический (от старых к новым)
-            print(f"Получено {len(result)} сообщений")
+            logger.debug(f"Получено {len(result)} сообщений")
             return result
 
 def get_message_count(user_id: int):
@@ -649,7 +646,7 @@ def get_message_count(user_id: int):
             ).fetchone()
             
             count = row[0] if row else 0
-            print(f"Количество сообщений пользователя {user_id}: {count}")
+            logger.debug(f"Количество сообщений пользователя {user_id}: {count}")
             return count
 
 def delete_old_messages(user_id: int, keep: int = 20):
@@ -660,7 +657,7 @@ def delete_old_messages(user_id: int, keep: int = 20):
         user_id (int): ID пользователя
         keep (int): Количество сообщений для сохранения
     """
-    print(f"Удаление старых сообщений пользователя {user_id}, оставляем {keep} последних")
+    logger.info(f"Удаление старых сообщений пользователя {user_id}, оставляем {keep} последних")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -671,7 +668,7 @@ def delete_old_messages(user_id: int, keep: int = 20):
             ).fetchone()
             
             if not row:
-                print(f"Недостаточно сообщений для удаления ({keep - 1})")
+                logger.debug(f"Недостаточно сообщений для удаления ({keep - 1})")
                 return  # Недостаточно сообщений
                 
             threshold_id = row[0]
@@ -682,7 +679,7 @@ def delete_old_messages(user_id: int, keep: int = 20):
                 (user_id, threshold_id)
             ).rowcount
             
-            print(f"Удалено {deleted} старых сообщений")
+            logger.info(f"Удалено {deleted} старых сообщений")
 
 def user_has_initial_analysis(user_id: int) -> bool:
     """
@@ -694,7 +691,7 @@ def user_has_initial_analysis(user_id: int) -> bool:
     Returns:
         bool: True, если первичный анализ уже был проведен, иначе False
     """
-    print(f"[DEBUG] Проверка наличия первичного анализа для пользователя {user_id}")
+    logger.debug(f"Проверка наличия первичного анализа для пользователя {user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -705,12 +702,12 @@ def user_has_initial_analysis(user_id: int) -> bool:
             
             # Проверяем, что row существует и значение не None и не 0
             result = bool(row and row[0] == 1)
-            print(f"[DEBUG] Результат проверки для пользователя {user_id}: {result} (значение в БД: {row[0] if row else 'None'})")
+            logger.debug(f"Результат проверки для пользователя {user_id}: {result} (значение в БД: {row[0] if row else 'None'})")
             
             if result:
-                print(f"[DEBUG] Пользователь {user_id} уже проходил первичный анализ")
+                logger.debug(f"Пользователь {user_id} уже проходил первичный анализ")
             else:
-                print(f"[DEBUG] Пользователь {user_id} еще не проходил первичный анализ")
+                logger.debug(f"Пользователь {user_id} еще не проходил первичный анализ")
             
             return result
 
@@ -721,7 +718,7 @@ def mark_initial_analysis_completed(user_id: int) -> None:
     Args:
         user_id (int): ID пользователя
     """
-    print(f"[DEBUG] Отмечаем первичный анализ как выполненный для пользователя {user_id}")
+    logger.debug(f"Отмечаем первичный анализ как выполненный для пользователя {user_id}")
     
     with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
         with conn:
@@ -737,70 +734,12 @@ def mark_initial_analysis_completed(user_id: int) -> None:
             ).fetchone()
             
             if row and row[0]:
-                print(f"[DEBUG] Успешно: первичный анализ отмечен как выполненный для пользователя {user_id}")
+                logger.debug(f"Успешно: первичный анализ отмечен как выполненный для пользователя {user_id}")
             else:
-                print(f"[DEBUG] ОШИБКА: Не удалось обновить статус первичного анализа для пользователя {user_id}")
+                logger.error(f"Не удалось обновить статус первичного анализа для пользователя {user_id}")
 
 
 # Функции для работы с проверкой совместимости
-
-# БЫЛО
-def create_compatibility_invitation(user_id: int, description: str) -> str:
-    """
-    Создает новое приглашение для проверки совместимости.
-    
-    Args:
-        user_id (int): ID пользователя, создающего приглашение
-        description (str): Описание приглашения (например, "для моего друга")
-        
-    Returns:
-        str: Сгенерированный код приглашения
-    """
-    import uuid
-    import time
-    
-    # Генерируем уникальный код приглашения
-    invite_code = f"{uuid.uuid4().hex[:8]}_{int(time.time())}"
-    
-    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
-        with conn:
-            try:
-                conn.execute(
-                    """INSERT INTO compatibility_invites 
-                       (invite_code, user_id, description, status) 
-                       VALUES (?, ?, ?, ?)""",
-                    (invite_code, user_id, description, 'pending')
-                )
-                print(f"Создано приглашение для совместимости с кодом: {invite_code}")
-                return invite_code
-            except Exception as e:
-                print(f"Ошибка при создании приглашения: {str(e)}")
-                # В случае ошибки генерируем другой код
-                fallback_code = f"fb_{uuid.uuid4().hex[:6]}_{int(time.time())}"
-                print(f"Используем запасной код: {fallback_code}")
-                return fallback_code
-
-def count_user_invites(user_id: int) -> int:
-    """
-    Подсчитывает количество активных приглашений, созданных пользователем.
-    
-    Args:
-        user_id (int): ID пользователя
-        
-    Returns:
-        int: Количество активных приглашений
-    """
-    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
-        with conn:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM compatibility_invites WHERE user_id = ? AND status = 'pending'",
-                (user_id,)
-            ).fetchone()
-            
-            count = row[0] if row else 0
-            print(f"Количество активных приглашений пользователя {user_id}: {count}")
-            return count
-
 
 def create_compatibility_invitation(user_id: int, description: str, compatibility_type: str = "general") -> str:
     """
@@ -820,7 +759,7 @@ def create_compatibility_invitation(user_id: int, description: str, compatibilit
     # Проверяем, сколько приглашений уже создал пользователь
     active_invites_count = count_user_invites(user_id)
     if active_invites_count >= 10:
-        print(f"Пользователь {user_id} достиг лимита приглашений (10)")
+        logger.warning(f"Пользователь {user_id} достиг лимита приглашений (10)")
         return None
     
     # Генерируем уникальный код приглашения
@@ -835,15 +774,35 @@ def create_compatibility_invitation(user_id: int, description: str, compatibilit
                        VALUES (?, ?, ?, ?, ?)""",
                     (invite_code, user_id, description, compatibility_type, 'pending')
                 )
-                print(f"Создано приглашение для совместимости с кодом: {invite_code}, тип: {compatibility_type}")
+                logger.info(f"Создано приглашение для совместимости с кодом: {invite_code}, тип: {compatibility_type}")
                 return invite_code
             except Exception as e:
-                print(f"Ошибка при создании приглашения: {str(e)}")
+                logger.error(f"Ошибка при создании приглашения: {str(e)}")
                 # В случае ошибки генерируем другой код
                 fallback_code = f"fb_{uuid.uuid4().hex[:6]}_{int(time.time())}"
-                print(f"Используем запасной код: {fallback_code}")
+                logger.info(f"Используем запасной код: {fallback_code}")
                 return fallback_code
             
+def count_user_invites(user_id: int) -> int:
+    """
+    Подсчитывает количество активных приглашений, созданных пользователем.
+    
+    Args:
+        user_id (int): ID пользователя
+        
+    Returns:
+        int: Количество активных приглашений
+    """
+    with closing(sqlite3.connect(SQLITE_DB_PATH)) as conn:
+        with conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM compatibility_invites WHERE user_id = ? AND status = 'pending'",
+                (user_id,)
+            ).fetchone()
+            
+            count = row[0] if row else 0
+            logger.debug(f"Количество активных приглашений пользователя {user_id}: {count}")
+            return count
 
 def check_compatibility_invitation(invite_code: str) -> dict:
     """
@@ -864,8 +823,10 @@ def check_compatibility_invitation(invite_code: str) -> dict:
             ).fetchone()
             
             if row:
+                logger.debug(f"Найдено приглашение с кодом {invite_code}")
                 return dict(row)
             
+            logger.warning(f"Приглашение с кодом {invite_code} не найдено")
             return None
 
 def accept_compatibility_invitation(invite_code: str, user_id: int) -> bool:
@@ -891,9 +852,10 @@ def accept_compatibility_invitation(invite_code: str, user_id: int) -> bool:
                     (user_id, invite_code)
                 )
                 
+                logger.info(f"Приглашение {invite_code} принято пользователем {user_id}")
                 return True
             except Exception as e:
-                print(f"Ошибка при принятии приглашения: {str(e)}")
+                logger.error(f"Ошибка при принятии приглашения: {str(e)}")
                 return False
 
 def get_user_compatibility_invites(user_id: int) -> list:
@@ -918,5 +880,5 @@ def get_user_compatibility_invites(user_id: int) -> list:
                 (user_id,)
             ).fetchall()
             
+            logger.debug(f"Получено {len(rows)} приглашений для пользователя {user_id}")
             return [dict(row) for row in rows]
-        

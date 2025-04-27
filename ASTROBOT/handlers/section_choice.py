@@ -7,6 +7,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from handlers.payment import get_payment_keyboard
 from services.db import user_has_active_subscription
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -18,8 +19,12 @@ async def subscription_choice(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} выбрал раздел 'Подписка'")
+    
     # Проверяем статус подписки
-    has_subscription = user_has_active_subscription(message.from_user.id)
+    has_subscription = user_has_active_subscription(user_id)
+    logger.debug(f"Статус подписки пользователя {user_id}: {has_subscription}")
     
     if has_subscription:
         await message.answer(
@@ -44,6 +49,9 @@ async def horoscope_choice(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} выбрал раздел 'Гороскоп'")
+    
     # Заготовка: пока сообщаем, что раздел в разработке
     await message.answer("Раздел 'Гороскоп' пока в разработке.")
     
@@ -57,7 +65,12 @@ async def change_data_choice(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} выбрал раздел 'Изменить данные'")
+    
     # Для изменения данных повторно запускаем анкету
     await message.answer("Измените ваши данные. Введите ваше имя и фамилию:")
+    
     from handlers import onboarding
+    logger.debug(f"Запуск процесса онбординга для изменения данных пользователя {user_id}")
     await onboarding.start_onboarding(message, state)

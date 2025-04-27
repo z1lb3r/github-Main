@@ -13,6 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import MIN_REQUIRED_BALANCE, AUDIO_CONVERSION_COST, MAX_AUDIO_TEXT_LENGTH
 from services.db import get_user_balance, subtract_from_balance, save_message
 from services.speech_service import text_to_speech, synthesize_long_text
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -29,7 +30,7 @@ async def start_consultation_mode(user_id: int, state: FSMContext):
     await state.update_data(in_consultation=True)
     await state.update_data(consultation_start_time=time.time())
     
-    print(f"User {user_id} started consultation mode")
+    logger.info(f"User {user_id} started consultation mode")
 
 # Function to end consultation mode
 async def end_consultation_mode(user_id: int, state: FSMContext):
@@ -51,7 +52,7 @@ async def end_consultation_mode(user_id: int, state: FSMContext):
     await state.update_data(in_consultation=False)
     await state.update_data(consultation_start_time=None)
     
-    print(f"User {user_id} ended consultation mode. Duration: {duration:.2f} seconds")
+    logger.info(f"User {user_id} ended consultation mode. Duration: {duration:.2f} seconds")
     
     return duration
 
@@ -68,7 +69,7 @@ async def is_in_consultation(state: FSMContext) -> bool:
     """
     data = await state.get_data()
     is_active = data.get("in_consultation", False)
-    print(f"Проверка режима консультации: {is_active}")
+    logger.debug(f"Проверка режима консультации: {is_active}")
     return is_active
 
 # Function to generate end consultation keyboard
@@ -116,10 +117,11 @@ async def handle_consultation_start(callback: CallbackQuery, state: FSMContext):
     balance = get_user_balance(user_id)
     
     # Отладочный вывод
-    print(f"Запуск консультации: user_id={user_id}, баланс={balance:.0f} баллов, минимум={MIN_REQUIRED_BALANCE:.0f} баллов")
+    logger.info(f"Запуск консультации: user_id={user_id}, баланс={balance:.0f} баллов, минимум={MIN_REQUIRED_BALANCE:.0f} баллов")
     
     # Check if user has enough balance
     if balance < MIN_REQUIRED_BALANCE:
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для начала консультации")
         await callback.message.answer(
             f"⚠️ Недостаточно средств для консультации.\n\n"
             f"Ваш текущий баланс: {balance:.0f} кредитов\n"
@@ -161,7 +163,7 @@ async def handle_consultation_end(callback: CallbackQuery, state: FSMContext):
     
     # Get current balance
     balance = get_user_balance(user_id)
-    print(f"Завершение консультации: user_id={user_id}, текущий баланс={balance:.0f} баллов")
+    logger.info(f"Завершение консультации: user_id={user_id}, текущий баланс={balance:.0f} баллов")
     
     # Calculate minutes and seconds
     minutes = int(duration // 60)
@@ -185,12 +187,14 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         callback (CallbackQuery): Callback query
         state (FSMContext): FSM context
     """
-    await callback.answer()
     user_id = callback.from_user.id
+    await callback.answer()
+    logger.info(f"Пользователь {user_id} запросил конвертацию ответа в аудио")
     
     # Проверяем, находится ли пользователь в режиме консультации
     in_consultation = await is_in_consultation(state)
     if not in_consultation:
+        logger.warning(f"Пользователь {user_id} не в режиме консультации, но запросил аудио")
         await callback.message.answer(
             "Вы не находитесь в режиме консультации. "
             "Для начала консультации выберите соответствующий пункт в меню."
@@ -205,6 +209,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
     bot_messages = [msg for msg in messages if msg['sender'] == 'bot' and not msg['is_summary']]
     
     if not bot_messages:
+        logger.warning(f"Не найдено ответов бота для пользователя {user_id}")
         await callback.message.answer(
             "Не найдено ответов бота для конвертации в аудио. "
             "Задайте вопрос, чтобы получить ответ."
@@ -220,12 +225,14 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
     
     # Ограничиваем длину текста для конвертации
     if len(last_response) > MAX_AUDIO_TEXT_LENGTH:
+        logger.info(f"Текст слишком длинный ({len(last_response)} символов), сокращаем до {MAX_AUDIO_TEXT_LENGTH}")
         last_response = last_response[:MAX_AUDIO_TEXT_LENGTH] + "... (текст сокращен для аудио-сообщения)"
     
     # Проверяем баланс пользователя
     balance = get_user_balance(user_id)
     
     if balance < AUDIO_CONVERSION_COST:
+        logger.warning(f"Недостаточно средств для конвертации в аудио: {balance:.0f} < {AUDIO_CONVERSION_COST}")
         await callback.message.answer(
             f"⚠️ Недостаточно средств для конвертации в аудио!\n\n"
             f"Стоимость конвертации: {AUDIO_CONVERSION_COST} кредитов\n"
@@ -249,15 +256,20 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         )
         
         if not subtract_success:
+            logger.error(f"Ошибка при списании средств за аудио для пользователя {user_id}")
             await status_message.edit_text(
                 "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
             )
             return
         
+        logger.info(f"Начало конвертации текста в аудио для пользователя {user_id} (длина текста: {len(last_response)})")
+        
         # Конвертируем текст в аудио
         if len(last_response) > 4500:  # Если текст длинный
+            logger.debug(f"Используем синтез длинного текста для пользователя {user_id}")
             audio_data = await synthesize_long_text(last_response)
         else:
+            logger.debug(f"Используем обычный синтез для пользователя {user_id}")
             audio_data = await text_to_speech(last_response)
         
         # Перемотаем BytesIO в начало, чтобы правильно прочитать данные
@@ -278,6 +290,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         
         # Показываем обновленный баланс
         new_balance = get_user_balance(user_id)
+        logger.info(f"Аудио успешно отправлено пользователю {user_id}")
         await callback.message.answer(
             f"✅ Аудио-сообщение успешно создано!\n"
             f"💰 Ваш текущий баланс: {new_balance:.0f} кредитов",
@@ -285,7 +298,7 @@ async def convert_to_audio_handler(callback: CallbackQuery, state: FSMContext):
         )
         
     except Exception as e:
-        print(f"Ошибка при конвертации в аудио: {str(e)}")
+        logger.error(f"Ошибка при конвертации в аудио для пользователя {user_id}: {str(e)}")
         await status_message.edit_text(
             f"⚠️ Произошла ошибка при конвертации текста в аудио: {str(e)}\n"
             "Пожалуйста, попробуйте позже или с другим текстом."
@@ -297,6 +310,8 @@ async def consultation_start_handler(callback: CallbackQuery, state: FSMContext)
     """
     Handler for starting a consultation from callback query.
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запустил консультацию через callback")
     await callback.answer()
     await handle_consultation_start(callback, state)
 
@@ -305,5 +320,7 @@ async def consultation_end_handler(callback: CallbackQuery, state: FSMContext):
     """
     Handler for ending a consultation from callback query.
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} завершил консультацию через callback")
     await callback.answer()
     await handle_consultation_end(callback, state)

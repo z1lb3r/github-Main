@@ -31,6 +31,8 @@ from config import (
 )
 from handlers.consultation_mode import get_end_consultation_keyboard
 from handlers.onboarding import geocode_location  # Импортируем существующую функцию
+from logger import handlers_logger as logger
+from logger import log_tokens
 
 router = Router()
 
@@ -60,14 +62,14 @@ def is_hd_type_request(text):
         r"проанализиру[йя]",
         
         # Термины Human Design
-        r"хьюман\s+дизайн",
-        r"human\s+design",
+        # r"хьюман\s+дизайн",
+        # r"human\s+design",
         r"(?:определи|расскажи\s+о).{1,20}дизайн[еа]",
-        r"генны[йе]\s+ключ[и]?",
-        r"канал[ыа]?",
+        # r"генны[йе]\s+ключ[и]?",
+        # r"канал[ыа]?",
         r"профиль\s+\d/\d",
         r"(?:определи|тип\s+по)\s+авторитет[ау]?",
-        r"стратеги[яю]",
+        # r"стратеги[яю]",
         
         # Данные о рождении
         r"дата.{1,10}рождения",
@@ -83,7 +85,9 @@ def is_hd_type_request(text):
     ]
     
     text_lower = text.lower()
-    return any(re.search(pattern, text_lower) for pattern in patterns)
+    result = any(re.search(pattern, text_lower) for pattern in patterns)
+    logger.debug(f"Проверка запроса на тип личности: {result}")
+    return result
 
 # Функция для извлечения даты, времени и места рождения из текста
 def extract_birth_info(text):
@@ -138,6 +142,7 @@ def extract_birth_info(text):
             place = place_match.group(1)
             break
     
+    logger.debug(f"Извлечена информация о рождении: дата={date}, время={time}, место={place}")
     return date, time, place
 
 # Функция для извлечения информации об отношениях из текста
@@ -199,6 +204,7 @@ def extract_relationship_info(text):
             relationship_info["context"] = context
             break
     
+    logger.debug(f"Извлечена информация об отношениях: {relationship_info}")
     return relationship_info
 
 @router.message()
@@ -212,9 +218,12 @@ async def conversation_handler(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = message.from_user.id
+    
     # Если пользователь находится в процессе прохождения анкеты – не обрабатываем сообщение
     current_state = await state.get_state()
     if current_state is not None:
+        logger.debug(f"Пользователь {user_id} находится в состоянии {current_state}, пропускаем обработку сообщения")
         return
 
     # Получаем данные из состояния
@@ -225,6 +234,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Если не в режиме консультации, просто отвечаем без списания средств
     if not in_consultation:
+        logger.info(f"Пользователь {user_id} не в режиме консультации, отправляем информационное сообщение")
         await message.answer(
             "Вы не находитесь в режиме консультации. Ваш баланс не будет списан, "
             "но я могу предоставить только ограниченные ответы. Чтобы начать полную консультацию "
@@ -234,11 +244,11 @@ async def conversation_handler(message: Message, state: FSMContext):
         return
 
     # Проверяем наличие достаточного баланса
-    user_id = message.from_user.id
     balance = get_user_balance(user_id)
     
     if balance < MIN_REQUIRED_BALANCE:
         # Если баланс недостаточен, предлагаем пополнить
+        logger.warning(f"Недостаточно средств у пользователя {user_id}: {balance:.0f} < {MIN_REQUIRED_BALANCE:.0f}")
         builder = InlineKeyboardBuilder()
         builder.button(
             text=f"Пополнить баланс",
@@ -255,16 +265,18 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Сохраняем сообщение пользователя в базу данных
     save_message(user_id, 'user', message.text)
+    logger.info(f"Сохранено сообщение пользователя {user_id}: {message.text[:50]}...")
 
     # Подсчитываем количество токенов во входящем сообщении
     input_tokens = count_tokens(message.text)
-    print(f"[ТОКЕНЫ] Входящее сообщение для пользователя {user_id}: {input_tokens} токенов")
+    log_tokens(logger, f"Входящее сообщение для пользователя {user_id}: {input_tokens} токенов")
 
     # Оцениваем стоимость запроса (используем множитель для входящих токенов)
     estimated_cost = input_tokens * TOKEN_PRICE * INPUT_TOKEN_MULTIPLIER
     
     # Проверяем, хватает ли средств на обработку запроса
     if balance < estimated_cost:
+        logger.warning(f"Недостаточно средств для обработки сообщения: {balance:.2f} < {estimated_cost:.2f}")
         builder = InlineKeyboardBuilder()
         builder.button(
             text=f"Пополнить баланс",
@@ -287,6 +299,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     )
     
     if not success:
+        logger.error(f"Ошибка при списании средств за обработку запроса для пользователя {user_id}")
         await message.answer(
             "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
         )
@@ -294,6 +307,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Обработка запроса через API для определения типа личности
     if is_hd_type_request(message.text):
+        logger.info(f"Запрос пользователя {user_id} определен как запрос о типе личности")
         # Извлекаем дату, время и место рождения
         date, time, place = extract_birth_info(message.text)
         
@@ -307,6 +321,7 @@ async def conversation_handler(message: Message, state: FSMContext):
             if not place:
                 missing_info.append("место рождения")
             
+            logger.info(f"Недостаточно информации для типирования: {', '.join(missing_info)}")
             await message.answer(
                 "Для определения типа личности мне не хватает следующей информации: " + 
                 ", ".join(missing_info) + ". Пожалуйста, предоставьте эти данные, чтобы я мог помочь вам с советами по улучшению отношений."
@@ -336,6 +351,7 @@ async def conversation_handler(message: Message, state: FSMContext):
             
             # Обрабатываем ответ
             if "error" in response_data:
+                logger.error(f"Ошибка при получении данных от API Holos: {response_data.get('error', 'Неизвестная ошибка')}")
                 await status_message.edit_text(
                     f"Произошла ошибка при получении данных: {response_data.get('error', 'Неизвестная ошибка')}"
                 )
@@ -402,10 +418,12 @@ async def conversation_handler(message: Message, state: FSMContext):
             return
                 
         except Exception as e:
+            logger.error(f"Исключение при анализе типа личности: {str(e)}")
             await message.answer(f"Произошла ошибка при анализе: {str(e)}")
             return
     
     # Стандартная обработка обычного запроса (без API)
+    logger.info(f"Обрабатываем обычный запрос пользователя {user_id}")
     # Получаем общее количество сообщений
     msg_count = get_message_count(user_id)
     
@@ -435,7 +453,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     
     # Подсчитываем количество токенов в ответе
     output_tokens = count_tokens(answer)
-    print(f"[ТОКЕНЫ] Исходящий ответ для пользователя {user_id}: {output_tokens} токенов")
+    log_tokens(logger, f"Исходящий ответ для пользователя {user_id}: {output_tokens} токенов")
 
     # Оцениваем стоимость ответа (используем множитель для исходящих токенов)
     response_cost = output_tokens * TOKEN_PRICE * OUTPUT_TOKEN_MULTIPLIER
@@ -443,6 +461,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Проверяем, хватает ли средств на получение ответа
     remaining_balance = get_user_balance(user_id)
     if remaining_balance < response_cost:
+        logger.warning(f"Недостаточно средств для ответа: {remaining_balance:.2f} < {response_cost:.2f}")
         builder = InlineKeyboardBuilder()
         builder.button(
             text=f"Пополнить баланс",
@@ -465,6 +484,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     )
     
     if not success:
+        logger.error(f"Ошибка при списании средств за ответ для пользователя {user_id}")
         await message.answer(
             "Произошла ошибка при списании средств за ответ. Пожалуйста, попробуйте позже."
         )
@@ -476,6 +496,7 @@ async def conversation_handler(message: Message, state: FSMContext):
     # Если сообщений больше 100, обрабатываем старые
     if msg_count > 50:
         # Получаем самые старые сообщения (те, которые нужно суммаризировать)
+        logger.info(f"Суммаризация старых сообщений для пользователя {user_id}")
         old_messages = get_last_messages(user_id, 50)[:-15]  # Исключаем 20 последних
         
         # Суммаризируем старые сообщения
@@ -486,6 +507,7 @@ async def conversation_handler(message: Message, state: FSMContext):
         
         # Удаляем старые сообщения
         deleted_count = delete_old_messages(user_id, 16)  # Оставляем 15 последних + 1 суммаризацию
+        logger.info(f"Удалено {deleted_count} старых сообщений для пользователя {user_id}")
     
     # Отправляем ответ пользователю
     await message.answer(

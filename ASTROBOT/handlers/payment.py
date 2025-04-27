@@ -17,6 +17,8 @@ from config import (
     MIN_REQUIRED_BALANCE,
     REFERRAL_REWARD_USD
 )
+from logger import handlers_logger as logger
+from logger import log_payment
 
 router = Router()
 
@@ -62,10 +64,11 @@ async def cmd_balance(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
-    print("Команда /balance получена")
+    user_id = message.from_user.id
+    logger.info(f"Команда /balance получена от пользователя {user_id}")
     
     # Получаем текущий баланс пользователя
-    balance = get_user_balance(message.from_user.id)
+    balance = get_user_balance(user_id)
     
     # Показываем информацию о балансе и кнопку для пополнения
     await message.answer(
@@ -84,7 +87,8 @@ async def cmd_payment(message: Message):
     Args:
         message (Message): Сообщение Telegram
     """
-    print("Команда /payment получена, переадресация на /balance")
+    user_id = message.from_user.id
+    logger.info(f"Команда /payment получена от пользователя {user_id}, переадресация на /balance")
     await cmd_balance(message)
 
 @router.callback_query(F.data == "deposit_balance")
@@ -97,7 +101,9 @@ async def process_deposit_start(callback: CallbackQuery, state: FSMContext):
         callback (CallbackQuery): Callback запрос от Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = callback.from_user.id
     await callback.answer()
+    logger.info(f"Пользователь {user_id} начал процесс пополнения баланса")
     
     # Переходим к состоянию ожидания ввода суммы
     await state.set_state(DepositStates.waiting_for_amount)
@@ -116,20 +122,26 @@ async def process_deposit_amount(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = message.from_user.id
     try:
         # Парсим сумму, заменяя запятые на точки
         amount = int(float(message.text.replace(',', '.').strip()))
         
         # Проверяем ограничения
         if amount < 100:
+            logger.warning(f"Пользователь {user_id} указал слишком маленькую сумму: {amount}")
             await message.answer("⚠️ Минимальная сумма пополнения 100 рублей. Пожалуйста, введите сумму больше.")
             return
         
         if amount > 10000000:
+            logger.warning(f"Пользователь {user_id} указал слишком большую сумму: {amount}")
             await message.answer("⚠️ Максимальная сумма пополнения 10 000 000 рублей. Пожалуйста, введите сумму меньше.")
             return
         
+        logger.info(f"Пользователь {user_id} указал сумму пополнения: {amount} руб.")
+        
     except ValueError:
+        logger.warning(f"Пользователь {user_id} указал некорректную сумму: {message.text}")
         await message.answer("⚠️ Пожалуйста, введите корректную сумму в рублях (например, 500).")
         return
     
@@ -158,18 +170,20 @@ async def schedule_payment_check(message, invoice_id, deposit_amount, user_id):
         success, result = await check_payment(invoice_id)
         
         # Добавляем отладочный вывод
-        print(f"Проверка #{attempt+1} платежа {invoice_id}: success={success}, результат={result}")
+        logger.debug(f"Проверка #{attempt+1} платежа {invoice_id}: success={success}, результат={result}")
         
         if success:
             # Дополнительно проверяем состояние напрямую
             state = result.get("state", "")
             is_paid = result.get("is_paid", False) or state == "payed" or state == "paid" or state == "success"
             
-            print(f"Статус платежа: {state}, is_paid={is_paid}")
+            logger.debug(f"Статус платежа: {state}, is_paid={is_paid}")
             
             if is_paid:
                 # Если платеж оплачен, пополняем баланс пользователя
-                print(f"Пополняем баланс пользователя {user_id} на {deposit_amount} кредитов")
+                logger.info(f"Пополняем баланс пользователя {user_id} на {deposit_amount} кредитов")
+                log_payment(logger, f"Автоматическое пополнение для пользователя {user_id} на сумму {deposit_amount} руб.")
+                
                 new_balance = add_to_balance(
                     user_id, 
                     deposit_amount,
@@ -182,6 +196,7 @@ async def schedule_payment_check(message, invoice_id, deposit_amount, user_id):
                 referrals = get_referrals(user_id)
                 if referrals and any(ref['status'] == 'pending' for ref in referrals):
                     activate_referral(user_id, deposit_amount)
+                    logger.info(f"Активирована реферальная связь для пользователя {user_id}")
                     
                     await message.answer(
                         "🎉 Оплата автоматически определена и проведена!\n\n"
@@ -202,7 +217,7 @@ async def schedule_payment_check(message, invoice_id, deposit_amount, user_id):
         await asyncio.sleep(50)  # Проверяем каждые 50 секунд
     
     # Если после всех попыток платеж не прошел, отправляем уведомление
-    print(f"Автоматическая проверка платежа {invoice_id} завершена без успеха")
+    logger.warning(f"Автоматическая проверка платежа {invoice_id} завершена без успеха")
 
 async def process_deposit(message_or_callback, deposit_amount=None):
     """
@@ -224,12 +239,15 @@ async def process_deposit(message_or_callback, deposit_amount=None):
         msg_object = message_or_callback
     
     # Создаем платеж в CrystalPay (в рублях)
+    logger.info(f"Создаем платеж для пользователя {user_id} на сумму {deposit_amount} руб.")
     success, result = await create_payment(user_id, deposit_amount)
     
     if success:
         # Получаем данные платежа
         invoice_id = result.get("id", "")
         payment_url = result.get("url", "")
+        
+        logger.info(f"Платеж успешно создан: ID={invoice_id}, URL={payment_url}")
         
         # Отправляем пользователю ссылку на оплату
         builder = InlineKeyboardBuilder()
@@ -252,7 +270,7 @@ async def process_deposit(message_or_callback, deposit_amount=None):
         # В случае ошибки показываем сообщение
         error_message = result.get("error", "Произошла неизвестная ошибка. Пожалуйста, попробуйте позже.")
         
-        print(f"Ошибка при создании платежа: {error_message}")
+        logger.error(f"Ошибка при создании платежа для пользователя {user_id}: {error_message}")
         
         await msg_object.answer(f"Ошибка при создании платежа: {error_message}")
 
@@ -265,12 +283,15 @@ async def check_deposit_status(callback: CallbackQuery):
     Args:
         callback (CallbackQuery): Callback запрос от Telegram
     """
+    user_id = callback.from_user.id
     await callback.answer("Проверяем статус платежа...")
     
     # Извлекаем ID платежа и сумму из callback_data
     parts = callback.data.split(":")
     invoice_id = parts[1]
     deposit_amount = int(float(parts[2])) if len(parts) > 2 else 0
+    
+    logger.info(f"Пользователь {user_id} проверяет статус платежа {invoice_id}")
     
     # Проверяем статус платежа в CrystalPay
     success, result = await check_payment(invoice_id)
@@ -280,11 +301,13 @@ async def check_deposit_status(callback: CallbackQuery):
         is_paid = result.get("is_paid", False) or state == "payed" or state == "paid" or state == "success"
         
         # Добавляем отладочный вывод
-        print(f"Проверка платежа {invoice_id}: статус={state}, is_paid={is_paid}")
+        logger.debug(f"Проверка платежа {invoice_id}: статус={state}, is_paid={is_paid}")
         
         if is_paid:
             # Если платеж оплачен, пополняем баланс пользователя в баллах
-            user_id = callback.from_user.id
+            logger.info(f"Платеж {invoice_id} оплачен, пополняем баланс пользователя {user_id}")
+            log_payment(logger, f"Ручное пополнение для пользователя {user_id} на сумму {deposit_amount} руб.")
+            
             new_balance = add_to_balance(
                 user_id, 
                 deposit_amount,  # Сумма в баллах равна сумме в рублях
@@ -298,6 +321,7 @@ async def check_deposit_status(callback: CallbackQuery):
             if referrals and any(ref['status'] == 'pending' for ref in referrals):
                 # Это активирует реферальную связь и начислит вознаграждение рефереру
                 activate_referral(user_id, deposit_amount)
+                logger.info(f"Активирована реферальная связь для пользователя {user_id}")
                 
                 await callback.message.answer(
                     "🎉 Оплата успешно проведена!\n\n"
@@ -314,6 +338,7 @@ async def check_deposit_status(callback: CallbackQuery):
                 )
         elif state == "pending" or state == "processing" or state == "notpayed":
             # Если платеж еще в ожидании или обработке
+            logger.info(f"Платеж {invoice_id} находится в обработке, статус: {state}")
             await callback.message.answer(
                 "Ваш платеж находится в обработке.\n\n"
                 "Это может занять некоторое время в зависимости от выбранного метода оплаты. "
@@ -321,6 +346,7 @@ async def check_deposit_status(callback: CallbackQuery):
             )
         else:
             # Если статус платежа другой (failed и т.д.)
+            logger.warning(f"Платеж {invoice_id} имеет нестандартный статус: {state}")
             await callback.message.answer(
                 f"Статус платежа: {state}.\n\n"
                 "Если у вас возникли проблемы с оплатой, "
@@ -329,6 +355,7 @@ async def check_deposit_status(callback: CallbackQuery):
     else:
         # В случае ошибки при проверке платежа
         error_message = result.get("error", "Произошла неизвестная ошибка при проверке платежа.")
+        logger.error(f"Ошибка при проверке платежа {invoice_id}: {error_message}")
         await callback.message.answer(f"Ошибка при проверке платежа: {error_message}")
 
 @router.callback_query(F.data == "transaction_history")
@@ -340,12 +367,15 @@ async def show_transaction_history(callback: CallbackQuery):
     Args:
         callback (CallbackQuery): Callback запрос от Telegram
     """
+    user_id = callback.from_user.id
     await callback.answer("Получаем историю транзакций...")
+    logger.info(f"Пользователь {user_id} запросил историю транзакций")
     
     # Получаем историю транзакций пользователя
-    transactions = get_transaction_history(callback.from_user.id)
+    transactions = get_transaction_history(user_id)
     
     if not transactions:
+        logger.info(f"У пользователя {user_id} нет истории транзакций")
         await callback.message.answer("У вас пока нет истории транзакций.")
         return
     
@@ -367,6 +397,7 @@ async def show_transaction_history(callback: CallbackQuery):
         else:
             message_text += f"• {date}: {tx_type} на сумму {abs(amount):.0f} кредитов - {description}\n\n"
     
+    logger.info(f"Отправляем пользователю {user_id} историю транзакций ({len(transactions)} записей)")
     await callback.message.answer(message_text)
 
 # Добавим тестовую команду для пополнения баланса (только для отладки)
@@ -378,6 +409,7 @@ async def cmd_test_deposit(message: Message):
     """
     user_id = message.from_user.id
     amount = 500  # Баллы (рубли)
+    logger.warning(f"Тестовое пополнение для пользователя {user_id} на {amount} кредитов!")
     new_balance = add_to_balance(user_id, amount, "Тестовое пополнение баланса")
     await message.answer(f"Тестовое пополнение на {amount} кредитов! Новый баланс: {new_balance:.0f} кредитов")
 
@@ -386,4 +418,5 @@ async def cmd_pay(message: Message):
     """
     Альтернативная команда для /balance.
     """
+    logger.info(f"Пользователь {message.from_user.id} использовал команду /pay")
     await cmd_balance(message)

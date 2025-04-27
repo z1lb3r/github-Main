@@ -24,6 +24,7 @@ from handlers.consultation_mode import (
 )
 from handlers.referral import show_referral_program_enhanced, show_ref_stats_enhanced
 from services.rag_utils import answer_with_rag
+from logger import handlers_logger as logger
 
 router = Router()
 
@@ -33,6 +34,9 @@ async def cmd_menu(message: Message):
     """
     Показывает главное меню бота.
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил главное меню через команду /menu")
+    
     await message.answer("Выберите раздел:", reply_markup=get_updated_main_menu_keyboard())
 
 # Обработчик кнопки "Начать консультацию"
@@ -43,12 +47,14 @@ async def start_consultation(message: Message, state: FSMContext):
     Проверяет данные пользователя и баланс, предлагает начать консультацию.
     """
     user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} нажал кнопку 'Начать консультацию'")
     
     # Проверяем, находится ли пользователь уже в режиме консультации
     in_consultation = await is_in_consultation(state)
-    print(f"Начало консультации: user_id={user_id}, уже в консультации={in_consultation}")
+    logger.debug(f"Начало консультации: user_id={user_id}, уже в консультации={in_consultation}")
     
     if in_consultation:
+        logger.info(f"Пользователь {user_id} уже находится в режиме консультации")
         await message.answer(
             "Вы уже находитесь в режиме консультации. Вы можете продолжать задавать вопросы "
             "или завершить консультацию, нажав на кнопку ниже.",
@@ -59,6 +65,7 @@ async def start_consultation(message: Message, state: FSMContext):
     # Проверяем профиль пользователя
     profile = get_user_profile(user_id)
     if not profile:
+        logger.warning(f"Профиль пользователя {user_id} не заполнен для начала консультации")
         await message.answer(
             "Для начала консультации необходимо заполнить ваши данные. "
             "Пожалуйста, введите /start для заполнения профиля.",
@@ -68,9 +75,10 @@ async def start_consultation(message: Message, state: FSMContext):
     
     # Проверяем баланс пользователя
     balance = get_user_balance(user_id)
-    print(f"Проверка баланса для консультации: user_id={user_id}, баланс={balance:.0f} кредитов, минимум={MIN_REQUIRED_BALANCE:.0f} кредитов")
+    logger.debug(f"Проверка баланса для консультации: user_id={user_id}, баланс={balance:.0f} кредитов, минимум={MIN_REQUIRED_BALANCE:.0f} кредитов")
     
     if balance < MIN_REQUIRED_BALANCE:
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для начала консультации")
         await message.answer(
             f"⚠️ Недостаточно средств для начала консультации.\n\n"
             f"Ваш текущий баланс: {balance:.0f} кредитов \n"
@@ -81,6 +89,7 @@ async def start_consultation(message: Message, state: FSMContext):
         return
     
     # Предлагаем начать консультацию
+    logger.info(f"Предложение начать консультацию пользователю {user_id}")
     await message.answer(
         "🔮 Вы готовы начать консультацию по Human Design?\n\n"
         "Консультация включает анализ вашей энергетической карты на основе "
@@ -98,12 +107,14 @@ async def continue_consultation(message: Message, state: FSMContext):
     Активирует режим консультации и предлагает продолжить диалог.
     """
     user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} нажал кнопку 'Продолжить консультацию'")
     
     # Проверяем, находится ли пользователь уже в режиме консультации
     in_consultation = await is_in_consultation(state)
-    print(f"Продолжение консультации: user_id={user_id}, уже в консультации={in_consultation}")
+    logger.debug(f"Продолжение консультации: user_id={user_id}, уже в консультации={in_consultation}")
     
     if in_consultation:
+        logger.info(f"Пользователь {user_id} уже находится в режиме консультации")
         await message.answer(
             "Вы уже находитесь в режиме консультации. Вы можете продолжать задавать вопросы.",
             reply_markup=get_end_consultation_keyboard()
@@ -113,6 +124,7 @@ async def continue_consultation(message: Message, state: FSMContext):
     # Проверяем профиль пользователя
     profile = get_user_profile(user_id)
     if not profile:
+        logger.warning(f"Профиль пользователя {user_id} не заполнен для продолжения консультации")
         await message.answer(
             "Для продолжения консультации необходимо заполнить ваши данные. "
             "Пожалуйста, введите /start для заполнения профиля.",
@@ -122,9 +134,10 @@ async def continue_consultation(message: Message, state: FSMContext):
     
     # Проверяем баланс пользователя
     balance = get_user_balance(user_id)
-    print(f"Проверка баланса для продолжения консультации: user_id={user_id}, баланс={balance:.0f} кредитов, минимум={MIN_REQUIRED_BALANCE:.0f} кредитов")
+    logger.debug(f"Проверка баланса для продолжения консультации: user_id={user_id}, баланс={balance:.0f} кредитов, минимум={MIN_REQUIRED_BALANCE:.0f} кредитов")
     
     if balance < MIN_REQUIRED_BALANCE:
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для продолжения консультации")
         await message.answer(
             f"⚠️ Недостаточно средств для продолжения консультации.\n\n"
             f"Ваш текущий баланс: {balance:.0f} кредитов \n"
@@ -139,6 +152,7 @@ async def continue_consultation(message: Message, state: FSMContext):
     
     # Проверяем, есть ли история сообщений
     if not messages:
+        logger.warning(f"У пользователя {user_id} нет истории сообщений для продолжения консультации")
         await message.answer(
             "У вас еще нет истории консультаций. Пожалуйста, выберите 'Начать консультацию' для начала новой консультации.",
             reply_markup=get_updated_main_menu_keyboard()
@@ -146,6 +160,7 @@ async def continue_consultation(message: Message, state: FSMContext):
         return
         
     # Активируем режим консультации
+    logger.info(f"Активация режима консультации для пользователя {user_id}")
     await start_consultation_mode(user_id, state)
     
     # Получаем данные из состояния
@@ -159,11 +174,14 @@ async def continue_consultation(message: Message, state: FSMContext):
     if messages and not type_shown:
         type_shown = True
         await state.update_data(type_shown=type_shown)
+        logger.debug(f"Установлен флаг type_shown={type_shown} для пользователя {user_id}")
     
     # Если в состоянии нет данных holos_response, получаем их заново
     if not holos_response:
         from services.holos_api import send_request_to_holos
         from config import HOLOS_DREAM_URL
+        
+        logger.info(f"Получение данных Holos для пользователя {user_id}")
         
         # Формируем строку даты и времени рождения
         date_str = f"{profile['birth_date']} {profile['birth_time']}"
@@ -195,6 +213,7 @@ async def continue_consultation(message: Message, state: FSMContext):
         
         # Сохраняем данные в состоянии
         await state.update_data(holos_response=holos_response)
+        logger.debug(f"Данные Holos сохранены в состоянии для пользователя {user_id}")
     
     # Формируем историю диалога
     conversation_history = ""
@@ -209,6 +228,7 @@ async def continue_consultation(message: Message, state: FSMContext):
     continue_prompt = "Поприветствуй пользователя вежливо и предложи продолжить консультацию с того места, на котором остановились. Не упоминай о предыдущей истории сообщений, просто начни диалог естественным образом, как будто продолжаешь разговор. Ты — консультант (мужчина) по Human Design и психологии отношений. ВСЕГДА используй грамматические формы мужского рода - например, говори 'я рад', 'я готов помочь', а не 'я рада', 'я готова помочь'."
     
     # Генерируем приветственное сообщение с использованием history и установленным флагом type_shown
+    logger.info(f"Генерация приветственного сообщения для пользователя {user_id}")
     welcome_message = answer_with_rag(
         continue_prompt,
         holos_response,
@@ -222,6 +242,7 @@ async def continue_consultation(message: Message, state: FSMContext):
     save_message(user_id, 'bot', welcome_message)
     
     # Отправляем приветственное сообщение с кнопкой завершения консультации
+    logger.info(f"Отправка приветственного сообщения пользователю {user_id}")
     await message.answer(
         welcome_message,
         reply_markup=get_end_consultation_keyboard()
@@ -234,8 +255,9 @@ async def show_balance(message: Message):
     Обработчик кнопки "Баланс".
     Показывает текущий баланс и опции для работы с ним.
     """
-    balance = get_user_balance(message.from_user.id)
-    print(f"Показ баланса: user_id={message.from_user.id}, баланс={balance:.0f} кредитов")
+    user_id = message.from_user.id
+    balance = get_user_balance(user_id)
+    logger.info(f"Пользователь {user_id} запросил информацию о балансе: {balance:.0f} кредитов")
     
     # Заменяем get_balance_keyboard на новую функцию без кнопки вывода средств
     builder = InlineKeyboardBuilder()
@@ -269,6 +291,9 @@ async def deposit_balance(callback: CallbackQuery, state: FSMContext):
     Обработчик кнопки "Пополнить".
     Запускает процесс пополнения через CrystalPay.
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запустил процесс пополнения баланса")
+    
     await callback.answer()
     
     # Используем функциональность уже имеющегося обработчика пополнения
@@ -282,6 +307,9 @@ async def show_terms(message: Message):
     Обработчик кнопки "Пользовательское соглашение".
     Показывает текст пользовательского соглашения.
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил пользовательское соглашение")
+    
     terms_text = """
 # Пользовательское соглашение
 
@@ -357,6 +385,8 @@ async def show_terms(message: Message):
         )
     else:
         parts = [terms_text[i:i+max_length] for i in range(0, len(terms_text), max_length)]
+        logger.debug(f"Текст соглашения разбит на {len(parts)} частей")
+        
         for i, part in enumerate(parts):
             if i == len(parts) - 1:  # Если это последняя часть
                 await message.answer(
@@ -373,6 +403,9 @@ async def show_about_us(message: Message):
     Обработчик кнопки "О нас".
     Показывает информацию о продукте.
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил информацию 'О нас'")
+    
     about_text = """
 # Астро-консультант: Персональный гид в мире Human Design
 
@@ -406,6 +439,9 @@ async def show_contacts(message: Message):
     Обработчик кнопки "Контакты".
     Показывает контактную информацию.
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил контактную информацию")
+    
     contacts_text = (
         "📞 Контакты\n\n"
         "Если у вас возникли вопросы или предложения, вы можете связаться с нами:\n\n"
@@ -425,6 +461,8 @@ async def show_referral_program(message: Message):
     Обработчик кнопки "Реферальная программа".
     Показывает информацию о реферальной программе.
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил информацию о реферальной программе")
     await show_referral_program_enhanced(message)
 
 # Обработчик кнопки "Изменить мои данные"
@@ -433,6 +471,9 @@ async def handle_change_data(message: Message, state: FSMContext):
     """
     Обработчик кнопки "Изменить мои данные".
     """
+    user_id = message.from_user.id
+    logger.info(f"Пользователь {user_id} запросил изменение данных")
+    
     from handlers.change_data import change_user_data
     await change_user_data(message, state)
 
@@ -448,6 +489,7 @@ async def copy_ref_link(callback: CallbackQuery):
     user_id = callback.from_user.id
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
+    logger.info(f"Пользователь {user_id} скопировал реферальную ссылку")
     await callback.answer("Ссылка скопирована!")
     await callback.message.answer(
         f"Ваша реферальная ссылка:\n{ref_link}\n\n"
@@ -460,6 +502,8 @@ async def show_ref_stats(callback: CallbackQuery):
     """
     Обработчик просмотра статистики приглашений.
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} запросил статистику рефералов")
     await show_ref_stats_enhanced(callback)
 
 # Обработчик возврата в главное меню
@@ -468,6 +512,9 @@ async def back_to_main_menu(callback: CallbackQuery):
     """
     Обработчик возврата в главное меню.
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} вернулся в главное меню")
+    
     await callback.answer()
     await callback.message.answer(
         "Вы вернулись в главное меню.",
@@ -485,10 +532,12 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
         callback (CallbackQuery): Callback query
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = callback.from_user.id
+    logger.info(f"Пользователь {user_id} подтвердил начало консультации")
+    
     await callback.answer()
     
     # Включаем режим консультации
-    user_id = callback.from_user.id
     await start_consultation_mode(user_id, state)
     
     # Получаем данные пользователя и настройки анализа HD
@@ -509,9 +558,10 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     
     # Проверяем баланс пользователя еще раз
     balance = get_user_balance(user_id)
-    print(f"[DEBUG] Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс={balance:.0f} кредитов, требуется={hd_cost:.0f} кредитов")
+    logger.debug(f"Проверка баланса для анализа HD в confirm_consultation: user_id={user_id}, баланс={balance:.0f} кредитов, требуется={hd_cost:.0f} кредитов")
     
     if balance < hd_cost:
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для анализа HD")
         await callback.message.answer(
             f"⚠️ Недостаточно средств на балансе для анализа Human Design!\n\n"
             f"Стоимость анализа: {hd_cost:.0f} кредитов\n"
@@ -523,6 +573,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     # Получаем профиль пользователя
     profile = get_user_profile(user_id)
     if not profile:
+        logger.warning(f"Профиль пользователя {user_id} не заполнен для анализа HD")
         await callback.message.answer(
             "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
         )
@@ -536,12 +587,14 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     )
     
     if not success:
+        logger.error(f"Ошибка при списании средств для пользователя {user_id}")
         await callback.message.answer(
             "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
         )
         return
     
     # Уведомляем пользователя о начале анализа
+    logger.info(f"Начало анализа HD для пользователя {user_id}")
     await callback.message.answer("Выполняем анализ Human Design, пожалуйста, подождите...")
 
     # Формируем строку даты и времени рождения
@@ -551,6 +604,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     altitude = profile["altitude"]
 
     # Отправляем запрос к API Holos
+    logger.info(f"Запрос данных к API Holos для пользователя {user_id}")
     response_data = await send_request_to_holos(
         holos_url=HOLOS_DREAM_URL,
         date_str=date_str,
@@ -574,7 +628,7 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     
     # Проверяем, был ли у пользователя уже проведен первичный анализ
     is_initial_analysis = not user_has_initial_analysis(user_id)
-    print(f"[DEBUG] Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
+    logger.debug(f"Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
     
     # Модифицированный промпт с запросом краткого определения типа и стандартным текстом
     expert_prompt = """
@@ -606,9 +660,10 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     # Если это первичный анализ, отмечаем это в БД
     if is_initial_analysis:
         mark_initial_analysis_completed(user_id)
-        print(f"[DEBUG] Отмечено, что первичный анализ выполнен для пользователя {user_id}")
+        logger.info(f"Отмечен первичный анализ как выполненный для пользователя {user_id}")
     
     # Генерируем ответ с помощью RAG - убрали параметр type_shown
+    logger.info(f"Генерация анализа HD для пользователя {user_id}")
     expert_comment = answer_with_rag(
         expert_prompt,
         holos_data_combined,
@@ -619,12 +674,16 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
     
     # Сохраняем ответ бота в базу данных
     save_message(user_id, 'bot', expert_comment)
+    logger.info(f"Ответ сохранен в базу данных для пользователя {user_id}")
     
     # Отправляем ответ
     if len(expert_comment) > 4096:
         chunk_size = 4096
-        for i in range(0, len(expert_comment), chunk_size):
-            await callback.message.answer(expert_comment[i:i+chunk_size])
+        chunks = [expert_comment[i:i+chunk_size] for i in range(0, len(expert_comment), chunk_size)]
+        logger.debug(f"Ответ разбит на {len(chunks)} частей для пользователя {user_id}")
+        
+        for i, chunk in enumerate(chunks):
+            await callback.message.answer(chunk)
     else:
         await callback.message.answer(expert_comment)
     
@@ -634,8 +693,10 @@ async def confirm_consultation(callback: CallbackQuery, state: FSMContext):
         holos_response=holos_data_combined,
         in_consultation=True
     )
+    logger.debug(f"Данные сохранены в состоянии для пользователя {user_id}")
     
     # Показываем кнопку завершения консультации
+    logger.info(f"Отправка кнопки завершения консультации пользователю {user_id}")
     await callback.message.answer(
         "Когда закончите консультацию, нажмите 'Завершить консультацию':", 
         reply_markup=get_end_consultation_keyboard()

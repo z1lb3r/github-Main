@@ -5,6 +5,7 @@
 
 import os
 import docx
+from logger import services_logger as logger
 
 def get_docx_content(docx_path: str) -> str:
     """
@@ -18,16 +19,28 @@ def get_docx_content(docx_path: str) -> str:
     """
     # Проверяем, существует ли файл
     if not os.path.isfile(docx_path):
-        return f"Файл {docx_path} не найден. Проверьте путь."
+        error_msg = f"Файл {docx_path} не найден. Проверьте путь."
+        logger.error(error_msg)
+        return error_msg
     
-    # Открываем DOCX-файл
-    doc = docx.Document(docx_path)
+    logger.info(f"Извлечение текста из DOCX-файла: {docx_path}")
     
-    # Извлекаем текст из всех параграфов
-    text_output = []
-    for para in doc.paragraphs:
-        if para.text:  # Если параграф не пустой
-            text_output.append(para.text)
-            
-    # Объединяем все параграфы, разделяя их переносом строки
-    return "\n".join(text_output)
+    try:
+        # Открываем DOCX-файл
+        doc = docx.Document(docx_path)
+        
+        # Извлекаем текст из всех параграфов
+        text_output = []
+        for para in doc.paragraphs:
+            if para.text:  # Если параграф не пустой
+                text_output.append(para.text)
+        
+        # Объединяем все параграфы, разделяя их переносом строки
+        extracted_text = "\n".join(text_output)
+        logger.debug(f"Извлечено {len(text_output)} параграфов, общий размер текста: {len(extracted_text)} символов")
+        return extracted_text
+        
+    except Exception as e:
+        error_msg = f"Ошибка при извлечении текста из файла {docx_path}: {str(e)}"
+        logger.error(error_msg)
+        return error_msg

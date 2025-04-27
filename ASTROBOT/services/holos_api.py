@@ -7,6 +7,7 @@ from timezonefinder import TimezoneFinder
 import pytz
 from datetime import datetime
 from config import HOLOS_API_KEY
+from logger import api_logger as logger
 
 async def convert_to_utc(date_str, latitude, longitude):
     """
@@ -27,7 +28,7 @@ async def convert_to_utc(date_str, latitude, longitude):
         
         if not timezone_str:
             # Если временная зона не найдена, используем UTC
-            print(f"Временная зона не найдена для координат {latitude}, {longitude}. Используем UTC.")
+            logger.warning(f"Временная зона не найдена для координат {latitude}, {longitude}. Используем UTC.")
             timezone_str = 'UTC'
         
         # Получаем объект временной зоны
@@ -45,11 +46,11 @@ async def convert_to_utc(date_str, latitude, longitude):
         # Форматируем в строку
         utc_date_str = utc_dt.strftime('%Y-%m-%d %H:%M')
         
-        print(f"Преобразование времени: Локальное [{timezone_str}]: {date_str} -> UTC: {utc_date_str}")
+        logger.info(f"Преобразование времени: Локальное [{timezone_str}]: {date_str} -> UTC: {utc_date_str}")
         
         return utc_date_str
     except Exception as e:
-        print(f"Ошибка при преобразовании времени в UTC: {str(e)}")
+        logger.error(f"Ошибка при преобразовании времени в UTC: {str(e)}")
         # В случае ошибки возвращаем исходное время
         return date_str
 
@@ -80,13 +81,14 @@ async def send_request_to_holos(holos_url, date_str, latitude, longitude, altitu
             "altitude": altitude
         }
         
-        print(f"Отправка запроса к API Holos с временем UTC: {utc_date_str}")
+        logger.info(f"Отправка запроса к API Holos с временем UTC: {utc_date_str}")
         
         # Отправляем POST-запрос к API
         async with aiohttp.ClientSession() as session:
             async with session.post(holos_url, json=payload) as response:
                 response_data = await response.json()
+                logger.debug(f"Получен ответ от API Holos: {response.status}")
                 return response_data
     except Exception as e:
-        print(f"Ошибка при обращении к API: {str(e)}")
+        logger.error(f"Ошибка при обращении к API: {str(e)}")
         return {"status": "error", "message": str(e)}

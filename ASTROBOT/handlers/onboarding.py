@@ -3,17 +3,20 @@
 Реализует анкетирование для сбора данных о пользователе.
 """
 
+import os
+import aiohttp
+import asyncio
+import json
+
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-import aiohttp
-import asyncio
-import json
 
 from services.db import update_user_profile
 from .keyboards import main_menu_kb
+from logger import handlers_logger as logger
 
 # Создаем экземпляр роутера
 router = Router()
@@ -36,7 +39,7 @@ async def geocode_location(location_text: str):
     Returns:
         tuple: (latitude, longitude, altitude) или (0.0, 0.0, 0.0) в случае ошибки
     """
-    print(f"Геокодирование местоположения: {location_text}")
+    logger.info(f"Геокодирование местоположения: {location_text}")
     
     # Нейтральные значения по умолчанию
     default_latitude = 0.0
@@ -62,13 +65,13 @@ async def geocode_location(location_text: str):
         async with aiohttp.ClientSession() as session:
             async with session.get(nominatim_url, params=params, headers=headers) as response:
                 if response.status != 200:
-                    print(f"Ошибка API Nominatim: HTTP {response.status}")
+                    logger.error(f"Ошибка API Nominatim: HTTP {response.status}")
                     return default_latitude, default_longitude, default_altitude
                 
                 data = await response.json()
                 
                 if not data:
-                    print(f"Место '{location_text}' не найдено")
+                    logger.warning(f"Место '{location_text}' не найдено")
                     return default_latitude, default_longitude, default_altitude
                 
                 # Получаем координаты
@@ -89,18 +92,18 @@ async def geocode_location(location_text: str):
                         if elev_response.status == 200:
                             elev_data = await elev_response.json()
                             altitude = elev_data["results"][0]["elevation"]
-                            print(f"Получены координаты: {latitude}, {longitude}, высота: {altitude}")
+                            logger.info(f"Получены координаты: {latitude}, {longitude}, высота: {altitude}")
                         else:
                             altitude = default_altitude
-                            print(f"Не удалось получить данные о высоте, используем значение по умолчанию")
+                            logger.warning(f"Не удалось получить данные о высоте, используем значение по умолчанию")
                 except Exception as e:
                     altitude = default_altitude
-                    print(f"Ошибка при получении высоты: {str(e)}")
+                    logger.error(f"Ошибка при получении высоты: {str(e)}")
                 
                 return latitude, longitude, altitude
                 
     except Exception as e:
-        print(f"Ошибка геокодирования: {str(e)}")
+        logger.error(f"Ошибка геокодирования: {str(e)}")
         return default_latitude, default_longitude, default_altitude
 
 # Функция для начала онбординга
@@ -112,6 +115,8 @@ async def start_onboarding(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния FSM
     """
+    user_id = message.from_user.id
+    logger.info(f"Начало онбординга для пользователя {user_id}")
     await state.set_state(OnboardingStates.waiting_for_name)
     await message.answer("Пожалуйста, введите ваше полное имя:")
 
@@ -125,8 +130,10 @@ async def process_name(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния FSM
     """
+    user_id = message.from_user.id
     # Сохраняем имя в данных состояния
     await state.update_data(full_name=message.text)
+    logger.info(f"Пользователь {user_id} указал имя: {message.text}")
     
     # Переходим к следующему состоянию
     await state.set_state(OnboardingStates.waiting_for_birth_date)
@@ -147,12 +154,14 @@ async def process_birth_date(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния FSM
     """
+    user_id = message.from_user.id
     # Проверяем формат даты
     date_text = message.text.strip()
     
     # Очень простая проверка формата даты
     date_parts = date_text.split('-')
     if len(date_parts) != 3 or len(date_text) < 8:
+        logger.warning(f"Пользователь {user_id} указал неверный формат даты: {date_text}")
         await message.answer(
             "Пожалуйста, введите дату в формате ГГГГ-ММ-ДД.\n"
             "Например: 1990-01-15"
@@ -161,6 +170,7 @@ async def process_birth_date(message: Message, state: FSMContext):
     
     # Сохраняем дату рождения в данных состояния
     await state.update_data(birth_date=date_text)
+    logger.info(f"Пользователь {user_id} указал дату рождения: {date_text}")
     
     # Переходим к следующему состоянию
     await state.set_state(OnboardingStates.waiting_for_birth_time)
@@ -181,11 +191,13 @@ async def process_birth_time(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния FSM
     """
+    user_id = message.from_user.id
     # Проверяем формат времени
     time_text = message.text.strip()
     
     # Очень простая проверка формата времени
     if len(time_text.split(':')) != 2 or len(time_text) < 4:
+        logger.warning(f"Пользователь {user_id} указал неверный формат времени: {time_text}")
         await message.answer(
             "Пожалуйста, введите время в формате ЧЧ:ММ.\n"
             "Например: 14:30"
@@ -194,6 +206,7 @@ async def process_birth_time(message: Message, state: FSMContext):
     
     # Сохраняем время рождения в данных состояния
     await state.update_data(birth_time=time_text)
+    logger.info(f"Пользователь {user_id} указал время рождения: {time_text}")
     
     # Переходим к следующему состоянию
     await state.set_state(OnboardingStates.waiting_for_birth_location)
@@ -214,8 +227,10 @@ async def process_birth_location(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния FSM
     """
+    user_id = message.from_user.id
     # Получаем место рождения и геокодируем его
     location_text = message.text.strip()
+    logger.info(f"Пользователь {user_id} указал место рождения: {location_text}")
     
     # Сообщаем пользователю, что идет обработка
     await message.answer("Определяю координаты места рождения...")
@@ -237,7 +252,7 @@ async def process_birth_location(message: Message, state: FSMContext):
         
         # Обновляем профиль пользователя в базе данных
         update_user_profile(
-            message.from_user.id,
+            user_id,
             data.get('full_name'),
             data.get('birth_date'),
             data.get('birth_time'),
@@ -249,6 +264,7 @@ async def process_birth_location(message: Message, state: FSMContext):
         # Проверяем, пришел ли пользователь по приглашению для проверки совместимости
         if 'start_invite_code' in data:
             invite_code = data['start_invite_code']
+            logger.info(f"Пользователь {user_id} пришел по приглашению для проверки совместимости: {invite_code}")
             from handlers.compatibility import process_compatibility_invitation
             await process_compatibility_invitation(message, invite_code)
         
@@ -268,7 +284,7 @@ async def process_birth_location(message: Message, state: FSMContext):
             reply_markup=main_menu_kb
         )
     except Exception as e:
-        print(f"Ошибка при обработке местоположения: {str(e)}")
+        logger.error(f"Ошибка при обработке местоположения: {str(e)}")
         await message.answer(
             "Произошла ошибка при определении координат. "
             "Пожалуйста, попробуйте ввести более точное название города или другой город."

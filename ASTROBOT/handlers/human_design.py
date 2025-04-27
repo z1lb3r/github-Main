@@ -20,6 +20,8 @@ from services.db import (
 )
 from services.holos_api import send_request_to_holos
 from services.rag_utils import answer_with_rag, count_tokens
+from logger import handlers_logger as logger
+from logger import log_tokens
 
 from config import (
     HOLOS_DREAM_URL, 
@@ -41,18 +43,20 @@ async def handle_human_design(message: Message, state: FSMContext):
         message (Message): Сообщение Telegram
         state (FSMContext): Контекст состояния для FSM
     """
+    user_id = message.from_user.id
+    
     # Рассчитываем стоимость анализа Human Design
     hd_cost = HD_ANALYSIS_TOKENS * TOKEN_PRICE
     
     # Проверяем наличие достаточного баланса
-    user_id = message.from_user.id
     balance = get_user_balance(user_id)
     
     # Добавляем отладочную информацию
-    print(f"[DEBUG] Проверка баланса для анализа HD: user_id={user_id}, баланс={balance:.0f} кредитов, требуется={hd_cost:.0f} кредитов")
+    logger.debug(f"Проверка баланса для анализа HD: user_id={user_id}, баланс={balance:.0f} кредитов, требуется={hd_cost:.0f} кредитов")
     
     if balance < hd_cost:
         # Если баланс недостаточен, предлагаем пополнить
+        logger.warning(f"Недостаточно средств у пользователя {user_id} для анализа Human Design")
         builder = InlineKeyboardBuilder()
         builder.button(
             text=f"Пополнить баланс",
@@ -70,6 +74,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     # Получаем профиль пользователя
     profile = get_user_profile(user_id)
     if not profile:
+        logger.warning(f"Профиль пользователя {user_id} не заполнен")
         await message.answer(
             "Ваш профиль не заполнен. Для заполнения данных выберите 'Изменить мои данные' или введите /start."
         )
@@ -83,12 +88,14 @@ async def handle_human_design(message: Message, state: FSMContext):
     )
     
     if not success:
+        logger.error(f"Ошибка при списании средств для пользователя {user_id}")
         await message.answer(
             "Произошла ошибка при списании средств. Пожалуйста, попробуйте позже."
         )
         return
     
     # Уведомляем пользователя о списании средств
+    logger.info(f"Списано {hd_cost:.0f} кредитов за анализ HD для пользователя {user_id}")
     await message.answer(
         f"💸 С вашего баланса списано {hd_cost:.0f} кредитов за анализ Human Design.\n"
         f"Выполняем анализ, пожалуйста, подождите..."
@@ -101,6 +108,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     altitude = profile["altitude"]
 
     # Отправляем запрос к API Holos
+    logger.info(f"Отправка запроса к API Holos для пользователя {user_id}")
     response_data = await send_request_to_holos(
         holos_url=HOLOS_DREAM_URL,
         date_str=date_str,
@@ -124,7 +132,7 @@ async def handle_human_design(message: Message, state: FSMContext):
     
     # Проверяем, был ли у пользователя уже проведен первичный анализ
     is_initial_analysis = not user_has_initial_analysis(user_id)
-    print(f"[DEBUG] Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
+    logger.debug(f"Первичный анализ для пользователя {user_id}: {'НЕ проводился (будет выполнен)' if is_initial_analysis else 'УЖЕ проводился (будет приветствие)'}")
     
     # Единый текст консультации независимо от того, первичный это анализ или нет
     expert_prompt = """
@@ -156,9 +164,10 @@ async def handle_human_design(message: Message, state: FSMContext):
     # Если это первичный анализ, отмечаем это в БД
     if is_initial_analysis:
         mark_initial_analysis_completed(user_id)
-        print(f"[DEBUG] Отмечено, что первичный анализ выполнен для пользователя {user_id}")
+        logger.info(f"Отмечено, что первичный анализ выполнен для пользователя {user_id}")
    
     # Генерируем ответ с помощью RAG - убрали параметр type_shown
+    logger.info(f"Генерация ответа с RAG для пользователя {user_id}")
     expert_comment = answer_with_rag(
         expert_prompt,
         holos_data_combined,
@@ -169,10 +178,12 @@ async def handle_human_design(message: Message, state: FSMContext):
    
     # Сохраняем ответ бота в базу данных
     save_message(user_id, 'bot', expert_comment)
+    logger.info(f"Сохранен ответ бота для пользователя {user_id}")
     
     # Отправляем ответ
     if len(expert_comment) > 4096:
         chunk_size = 4096
+        logger.debug(f"Ответ слишком длинный ({len(expert_comment)} символов), разбиваем на части")
         for i in range(0, len(expert_comment), chunk_size):
             await message.answer(expert_comment[i:i+chunk_size])
     else:
@@ -180,6 +191,7 @@ async def handle_human_design(message: Message, state: FSMContext):
    
     # Получаем обновленный баланс и сообщаем о возможности задать вопросы
     new_balance = get_user_balance(user_id)
+    logger.info(f"Анализ HD завершен для пользователя {user_id}, новый баланс: {new_balance:.0f} кредитов")
     await message.answer(
         f"Анализ Human Design завершен!\n\n"
         f"💰 Ваш текущий баланс: {new_balance:.0f} кредитов \n\n"

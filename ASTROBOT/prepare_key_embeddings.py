@@ -9,7 +9,7 @@ import faiss
 import numpy as np
 from config import KEY1_DOCX_PATH, KEY2_DOCX_PATH, OPENAI_API_KEY
 from docx_data import get_docx_content
-
+from logger import services_logger as logger
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Константы
@@ -33,6 +33,8 @@ def chunk_text(full_text: str, chunk_size: int):
         end = start + chunk_size
         chunks.append(full_text[start:end])
         start = end
+    
+    logger.debug(f"Текст разбит на {len(chunks)} фрагментов по {chunk_size} символов")
     return chunks
 
 def get_embedding(text: str):
@@ -45,8 +47,15 @@ def get_embedding(text: str):
     Returns:
         list: Векторное представление текста
     """
-    response = openai.embeddings.create(input=[text], model=EMBED_MODEL)
-    return response.data[0].embedding
+    logger.debug(f"Получение эмбеддинга для текста длиной {len(text)} символов")
+    
+    try:
+        response = openai.embeddings.create(input=[text], model=EMBED_MODEL)
+        logger.debug("Эмбеддинг успешно получен")
+        return response.data[0].embedding
+    except Exception as e:
+        logger.error(f"Ошибка при получении эмбеддинга: {str(e)}")
+        raise
 
 def prepare_embeddings(docx_path: str, index_file: str, chunks_file: str):
     """
@@ -57,40 +66,56 @@ def prepare_embeddings(docx_path: str, index_file: str, chunks_file: str):
         index_file (str): Имя файла для сохранения индекса FAISS
         chunks_file (str): Имя файла для сохранения фрагментов текста
     """
+    logger.info(f"Начало подготовки эмбеддингов для файла {docx_path}")
+    
     # Получаем текст из DOCX-файла
     text = get_docx_content(docx_path)
     
     # Разбиваем текст на фрагменты
     chunks = chunk_text(text, CHUNK_SIZE)
-    print(f"Всего {len(chunks)} фрагментов для файла {docx_path}")
+    logger.info(f"Всего {len(chunks)} фрагментов для файла {docx_path}")
     
     # Получаем эмбеддинги для каждого фрагмента
-    embeddings = [get_embedding(ch) for ch in chunks]
+    logger.info("Начало создания эмбеддингов для фрагментов")
+    embeddings = []
+    for i, ch in enumerate(chunks):
+        logger.debug(f"Обработка фрагмента {i+1}/{len(chunks)}")
+        embedding = get_embedding(ch)
+        embeddings.append(embedding)
     
     # Преобразуем список эмбеддингов в массив NumPy
     embeddings_np = np.array(embeddings, dtype="float32")
     
     # Получаем размерность эмбеддингов
     dimension = embeddings_np.shape[1]
+    logger.debug(f"Размерность эмбеддингов: {dimension}")
     
     # Создаем индекс FAISS для быстрого поиска
+    logger.info("Создание индекса FAISS")
     index = faiss.IndexFlatL2(dimension)
     index.add(embeddings_np)
     
     # Сохраняем индекс и фрагменты
+    logger.info(f"Сохранение индекса в файл {index_file}")
     faiss.write_index(index, index_file)
+    
+    logger.info(f"Сохранение фрагментов в файл {chunks_file}")
     np.save(chunks_file, np.array(chunks, dtype=object))
     
-    print(f"Векторный индекс сохранён: {index_file}")
-    print(f"Файл с фрагментами сохранён: {chunks_file}")
+    logger.info(f"Векторный индекс сохранён: {index_file}")
+    logger.info(f"Файл с фрагментами сохранён: {chunks_file}")
 
 if __name__ == "__main__":
     # Устанавливаем API ключ для OpenAI
     openai.api_key = OPENAI_API_KEY
+    logger.info("Установлен API ключ OpenAI")
     
     # Подготовка эмбеддингов для key1.docx
+    logger.info("Начало подготовки эмбеддингов для key1.docx")
     prepare_embeddings(KEY1_DOCX_PATH, os.path.join(BASE_DIR, "key1.index"), os.path.join(BASE_DIR, "key1_chunks.npy"))
 
-    
     # Подготовка эмбеддингов для key2.docx
+    logger.info("Начало подготовки эмбеддингов для key2.docx")
     prepare_embeddings(KEY2_DOCX_PATH, os.path.join(BASE_DIR, "key2.index"), os.path.join(BASE_DIR, "key2_chunks.npy"))
+    
+    logger.info("Подготовка эмбеддингов успешно завершена")
